@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mis Ahorros - Delta Retorno Real</title>
+    <!-- Meta tags de SEO -->
+    <meta name="description" content="Seguimiento visual y en tiempo real de tus ahorros invertidos en el Fondo Común de Inversión Delta Retorno Real.">
+    <meta name="keywords" content="FCI, Delta Retorno Real, Ahorros, Finanzas Personales, Argentina, Inversiones, Cuotapartes">
+    <meta name="author" content="Leandro Olivera">
+    
+    <!-- Google Fonts: Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome para Iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js para el Gráfico -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- CSS Propio -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-logo">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-chart-line"></i>
+                </div>
+                <div class="logo-text">
+                    <h1>MisAhorros</h1>
+                    <span class="sub-logo">Delta Retorno Real (Clase A)</span>
+                </div>
+            </div>
+            
+            <!-- Estado de la API -->
+            <div class="api-status-container" id="api-status-box">
+                <span class="status-dot pulsing" id="api-status-dot"></span>
+                <span class="status-text" id="api-status-text">Conectando con la API...</span>
+            </div>
+        </header>
+
+        <!-- Contenedor Principal (Grid Layout) -->
+        <main class="app-main">
+            
+            <!-- Sección Izquierda: Formulario e Info del Fondo -->
+            <aside class="sidebar-section">
+                <!-- Info del Fondo -->
+                <div class="card glass-card fund-info-card">
+                    <h2 class="card-title"><i class="fa-solid fa-circle-info"></i> Información del Fondo</h2>
+                    <div class="fund-metrics-list">
+                        <div class="fund-metric-item">
+                            <span class="fund-metric-label">Última Cotización</span>
+                            <span class="fund-metric-value" id="fund-cotizacion">---</span>
+                        </div>
+                        <div class="fund-metric-item">
+                            <span class="fund-metric-label">Fecha de Cierre</span>
+                            <span class="fund-metric-value" id="fund-fecha-cierre">---</span>
+                        </div>
+                        <div class="fund-metric-item">
+                            <span class="fund-metric-label">Variación Diaria</span>
+                            <span class="fund-metric-value" id="fund-var-diaria">---</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Formulario de Carga -->
+                <div class="card glass-card form-card">
+                    <h2 class="card-title"><i class="fa-solid fa-plus"></i> Nueva Suscripción</h2>
+                    <form id="subscription-form" autocomplete="off">
+                        <!-- Fecha -->
+                        <div class="form-group">
+                            <label for="input-date">Fecha de Concertación</label>
+                            <div class="input-wrapper">
+                                <i class="fa-regular fa-calendar input-icon"></i>
+                                <input type="date" id="input-date" required>
+                            </div>
+                        </div>
+
+                        <!-- Importe -->
+                        <div class="form-group">
+                            <label for="input-amount">Importe en Pesos ($)</label>
+                            <div class="input-wrapper">
+                                <span class="input-prefix">$</span>
+                                <input type="number" id="input-amount" step="0.01" min="0.01" placeholder="0,00" required>
+                            </div>
+                        </div>
+
+                        <!-- Checkbox Manual -->
+                        <div class="form-checkbox-group">
+                            <input type="checkbox" id="check-manual-cuotapartes">
+                            <label for="check-manual-cuotapartes">Ingresar cuotapartes manualmente</label>
+                        </div>
+
+                        <!-- Contenedor Cuotapartes (Opcional) -->
+                        <div class="form-group hidden" id="cuotapartes-group">
+                            <label for="input-cuotapartes">Cantidad de Cuotapartes</label>
+                            <div class="input-wrapper">
+                                <i class="fa-solid fa-coins input-icon"></i>
+                                <input type="number" id="input-cuotapartes" step="0.000001" min="0.000001" placeholder="0,000000">
+                            </div>
+                            <span class="input-help">Ingresá la cantidad exacta de tu comprobante del broker.</span>
+                        </div>
+
+                        <!-- Botón Submit -->
+                        <button type="submit" class="btn btn-primary" id="btn-submit-form">
+                            <i class="fa-solid fa-check"></i> Cargar Movimiento
+                        </button>
+                    </form>
+                    
+                    <!-- Loader del Formulario -->
+                    <div class="form-loader hidden" id="form-loader">
+                        <div class="spinner"></div>
+                        <p id="form-loader-text">Consultando cotización histórica...</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Sección Derecha: Métricas y Gráfico -->
+            <section class="content-section">
+                <!-- Tarjetas de Métricas -->
+                <div class="metrics-grid">
+                    <!-- Tarjeta 1: Total Invertido -->
+                    <div class="card glass-card metric-card border-left-blue">
+                        <div class="metric-icon bg-soft-blue">
+                            <i class="fa-solid fa-wallet"></i>
+                        </div>
+                        <div class="metric-data">
+                            <span class="metric-label">Capital Invertido</span>
+                            <h3 class="metric-value" id="val-capital-invertido">$0,00</h3>
+                            <span class="metric-subtext" id="val-total-suscripciones">0 suscripciones</span>
+                        </div>
+                    </div>
+
+                    <!-- Tarjeta 2: Tenencia Valorizada -->
+                    <div class="card glass-card metric-card border-left-purple">
+                        <div class="metric-icon bg-soft-purple">
+                            <i class="fa-solid fa-chart-simple"></i>
+                        </div>
+                        <div class="metric-data">
+                            <span class="metric-label">Tenencia Valorizada</span>
+                            <h3 class="metric-value" id="val-tenencia-valorizada">$0,00</h3>
+                            <span class="metric-subtext" id="val-total-cuotapartes">0,000000 cuotapartes</span>
+                        </div>
+                    </div>
+
+                    <!-- Tarjeta 3: Ganancia Absoluta -->
+                    <div class="card glass-card metric-card border-left-green" id="metric-ganancia-box">
+                        <div class="metric-icon bg-soft-green" id="metric-ganancia-icon">
+                            <i class="fa-solid fa-arrow-trend-up"></i>
+                        </div>
+                        <div class="metric-data">
+                            <span class="metric-label">Rendimiento Neto</span>
+                            <h3 class="metric-value" id="val-ganancia-neta">$0,00</h3>
+                            <span class="metric-subtext" id="val-ganancia-porcentaje">0,00% de retorno</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gráfico de Evolución -->
+                <div class="card glass-card chart-card">
+                    <div class="chart-header">
+                        <h2 class="card-title"><i class="fa-regular fa-chart-bar"></i> Evolución de tus Ahorros</h2>
+                        <div class="chart-legend-custom">
+                            <span class="legend-item"><span class="legend-dot color-capital"></span> Capital Invertido</span>
+                            <span class="legend-item"><span class="legend-dot color-tenencia"></span> Tenencia Valorizada</span>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="savings-chart"></canvas>
+                        <!-- Mensaje de no datos -->
+                        <div class="chart-placeholder hidden" id="chart-placeholder-msg">
+                            <i class="fa-solid fa-chart-line"></i>
+                            <p>Cargá tus primeros movimientos para generar el gráfico de rendimiento.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Sección Inferior: Historial de Movimientos -->
+        <footer class="app-footer-table">
+            <div class="card glass-card table-card">
+                <div class="table-header">
+                    <h2 class="card-title"><i class="fa-solid fa-list-ul"></i> Movimientos Cargados</h2>
+                    <div class="table-actions">
+                        <!-- Buscador -->
+                        <div class="search-box">
+                            <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                            <input type="text" id="search-input" placeholder="Buscar movimientos...">
+                        </div>
+                        <!-- Botones de Backup -->
+                        <button class="btn btn-secondary" id="btn-export-data" title="Exportar JSON">
+                            <i class="fa-solid fa-download"></i> Exportar
+                        </button>
+                        <button class="btn btn-secondary" id="btn-import-data" title="Importar JSON">
+                            <i class="fa-solid fa-upload"></i> Importar
+                        </button>
+                        <input type="file" id="file-import-input" class="hidden" accept=".json">
+                    </div>
+                </div>
+                
+                <div class="table-responsive">
+                    <table class="data-table" id="movements-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Fondo</th>
+                                <th>Operación</th>
+                                <th class="text-right">Importe</th>
+                                <th class="text-right">Cotización</th>
+                                <th class="text-right">Cuotapartes</th>
+                                <th class="text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body">
+                            <!-- Filas dinámicas -->
+                        </tbody>
+                    </table>
+                    
+                    <div class="table-empty hidden" id="table-empty-msg">
+                        <i class="fa-solid fa-receipt"></i>
+                        <p>No se encontraron movimientos registrados.</p>
+                    </div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Modal para notificaciones o alertas personalizadas (estilo Glassmorphism) -->
+    <div class="modal-overlay hidden" id="modal-container">
+        <div class="modal-box glass-card">
+            <div class="modal-header">
+                <h3 id="modal-title">Título del Mensaje</h3>
+                <button class="modal-close" id="btn-modal-close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="modal-body" id="modal-body-content">
+                Mensaje de error o advertencia aquí.
+            </div>
+            <div class="modal-footer" id="modal-footer-content">
+                <button class="btn btn-primary" id="btn-modal-confirm">Aceptar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS de la App -->
+    <script src="app.js"></script>
+</body>
+</html>
