@@ -35,12 +35,23 @@ Presentación premium mediante tarjetas visuales dinámicas:
 * **Tenencia Valorizada:** El valor de mercado actual de tus cuotapartes acumuladas (`Total Cuotapartes × Cotización del Día`).
 * **Rendimiento Neto:** La ganancia o pérdida real acumulada en pesos ($) y su equivalencia en porcentaje (%) de retorno de inversión. Cambia dinámicamente de color (verde/rojo) y de ícono según el estado.
 
-### 4. Gráfico Evolutivo Interactivo
-Impulsado por **Chart.js**, el gráfico traza cronológicamente tus depósitos. Muestra una línea discontinua azul (*Capital Invertido*) y una línea sólida violeta con sombreado de gradiente (*Tenencia Valorizada*), extendiéndose hasta el día de hoy con la cotización del último cierre.
+### 4. Simulador de Comparativa de Inversiones
+La app descarga la serie histórica de tasas pasivas del BCRA y simula en tiempo real dos alternativas de inversión para tus mismos depósitos:
+*   **Plazo Fijo BNA:** Simula plazos fijos a 30 días con renovación automática e interés compuesto desde la fecha de cada suscripción hasta la cotización actual, aplicando la tasa pasiva exacta de la fecha.
+*   **Mercado Pago (FCI):** Simula el rendimiento diario (interés compuesto diario) aplicando una TNA estimada del 85% de la tasa de Plazo Fijo correspondiente a cada día.
+*   **Diferenciales Dinámicos:** Muestra badges inteligentes (`+` / `-`) en pesos y porcentaje indicando la diferencia exacta de rentabilidad de cada alternativa en comparación con tu fondo Delta actual.
 
-### 5. Privacidad y Portabilidad de Datos (100% Local)
-* **Privacidad Absoluta:** Tus datos financieros no se envían a ningún servidor externo. Se guardan localmente en el almacenamiento seguro de tu propio navegador (`localStorage`).
-* **Portabilidad y Respaldo:** Cuenta con funciones integradas para **Exportar** tu base de datos a un archivo JSON y volver a **Importarla** en cualquier momento, lo que te permite transferir tus registros a otros dispositivos o tener copias de seguridad de forma segura.
+### 5. Gráfico Evolutivo Multilínea
+Impulsado por **Chart.js**, el gráfico traza cronológicamente tus depósitos y simula el rendimiento acumulado de las opciones. Muestra:
+*   **Capital Invertido** (azul discontinuo)
+*   **Delta Retorno Real** (violeta sólido)
+*   **Plazo Fijo BNA** (naranja sólido)
+*   **Mercado Pago** (verde azulado sólido)
+
+### 6. Privacidad y Portabilidad de Datos (100% Local)
+*   **Privacidad Absoluta:** Tus datos financieros no se envían a ningún servidor externo. Se guardan localmente en el almacenamiento seguro de tu propio navegador (`localStorage`).
+*   **Portabilidad y Respaldo:** Cuenta con funciones integradas para **Exportar** tu base de datos a un archivo JSON y volver a **Importarla** en cualquier momento, lo que te permite transferir tus registros a otros dispositivos o tener copias de seguridad de forma segura.
+*   **Snapshot Histórico:** Incluye una carpeta `snapshot/` con el código original antes de la implementación de la comparativa, para fines de backup y control de versiones.
 
 ---
 
