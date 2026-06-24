@@ -26,6 +26,12 @@
     --color-red: #ef4444;           /* Rojo */
     --color-red-soft: rgba(239, 68, 68, 0.15);
     
+    --color-orange: #f97316;        /* Naranja - Plazo Fijo */
+    --color-orange-soft: rgba(249, 115, 22, 0.15);
+    
+    --color-teal: #0d9488;          /* Verde azulado - Mercado Pago */
+    --color-teal-soft: rgba(13, 148, 136, 0.15);
+    
     --font-family: 'Outfit', sans-serif;
     --border-radius-lg: 16px;
     --border-radius-md: 10px;
@@ -451,10 +457,82 @@ body {
     letter-spacing: -0.5px;
 }
 
-.metric-subtext {
-    font-size: 0.72rem;
-    color: var(--text-muted);
+/* COMPARISON GRID & CARDS */
+.comparison-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 8px;
 }
+
+.comparison-card {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.comp-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.comp-label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.comp-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 50px;
+    text-transform: uppercase;
+}
+
+.badge-orange {
+    background: var(--color-orange-soft);
+    color: var(--color-orange);
+    border: 1px solid rgba(249, 115, 22, 0.2);
+}
+
+.badge-teal {
+    background: var(--color-teal-soft);
+    color: var(--color-teal);
+    border: 1px solid rgba(13, 148, 136, 0.2);
+}
+
+.comp-body {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.comp-value {
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+.comp-diff {
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.comp-diff.positive { color: var(--color-green); }
+.comp-diff.negative { color: var(--color-red); }
+
+.border-left-orange { border-left: 4px solid var(--color-orange); }
+.border-left-teal { border-left: 4px solid var(--color-teal); }
 
 /* CHART CARD */
 .chart-card {
@@ -479,6 +557,7 @@ body {
     gap: 16px;
     font-size: 0.75rem;
     color: var(--text-secondary);
+    flex-wrap: wrap;
 }
 
 .legend-item {
@@ -495,6 +574,8 @@ body {
 
 .legend-dot.color-capital { background-color: var(--color-blue); }
 .legend-dot.color-tenencia { background-color: var(--color-primary); }
+.legend-dot.color-plazofijo { background-color: var(--color-orange); }
+.legend-dot.color-mercadopago { background-color: var(--color-teal); }
 
 .chart-container {
     position: relative;

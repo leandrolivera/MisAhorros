@@ -36,17 +36,27 @@ Presentación premium mediante tarjetas visuales dinámicas:
 * **Rendimiento Neto:** La ganancia o pérdida real acumulada en pesos ($) y su equivalencia en porcentaje (%) de retorno de inversión. Cambia dinámicamente de color (verde/rojo) y de ícono según el estado.
 
 ### 4. Simulador de Comparativa de Inversiones
-La app descarga la serie histórica de tasas pasivas del BCRA y simula en tiempo real dos alternativas de inversión para tus mismos depósitos:
-*   **Plazo Fijo BNA:** Simula plazos fijos a 30 días con renovación automática e interés compuesto desde la fecha de cada suscripción hasta la cotización actual, aplicando la tasa pasiva exacta de la fecha.
-*   **Mercado Pago (FCI):** Simula el rendimiento diario (interés compuesto diario) aplicando una TNA estimada del 85% de la tasa de Plazo Fijo correspondiente a cada día.
+La app descarga en tiempo real tasas históricas de plazo fijo, cotizaciones del dólar blue y tasas fintech para simular cuatro alternativas de inversión aplicadas a tus mismos depósitos y fechas:
+*   **Plazo Fijo BNA:** Simula plazos fijos a 30 días con renovación automática e interés compuesto, aplicando la tasa pasiva real del BCRA para cada fecha de renovación.
+*   **Mercado Pago (FCI):** Simula intereses con capitalización compuesta diaria aplicando una TNA estimada del 85% de la tasa de Plazo Fijo diaria.
+*   **Naranja X (Frascos):** Simula rendimientos diarios compuestos usando el 90% de la TNA de plazo fijo diaria y respetando el tope oficial de remuneración actual de $1.000.000 (el excedente no genera intereses).
+*   **Dólar Blue:** Simula la compra de dólares al valor de venta del día de cada suscripción y su posterior venta al valor de compra actual del dólar blue, valorizando la tenencia resultante.
 *   **Diferenciales Dinámicos:** Muestra badges inteligentes (`+` / `-`) en pesos y porcentaje indicando la diferencia exacta de rentabilidad de cada alternativa en comparación con tu fondo Delta actual.
 
-### 5. Gráfico Evolutivo Multilínea
-Impulsado por **Chart.js**, el gráfico traza cronológicamente tus depósitos y simula el rendimiento acumulado de las opciones. Muestra:
-*   **Capital Invertido** (azul discontinuo)
-*   **Delta Retorno Real** (violeta sólido)
-*   **Plazo Fijo BNA** (naranja sólido)
-*   **Mercado Pago** (verde azulado sólido)
+### 5. Gráfico Evolutivo e Interactividad en la Leyenda
+Impulsado por **Chart.js**, el gráfico traza cronológicamente tus depósitos y simula el rendimiento acumulado de las opciones:
+*   **Capital Invertido** (Línea discontinua azul)
+*   **Delta Retorno Real** (Línea sólida violeta)
+*   **Plazo Fijo BNA** (Línea sólida amarilla)
+*   **Mercado Pago** (Línea sólida cian)
+*   **Naranja X** (Línea sólida naranja)
+*   **Dólar Blue** (Línea sólida esmeralda)
+
+**Interactividad Completa (Filtros en Leyenda):**
+Haciendo clic en cualquier elemento de la leyenda personalizada en la parte superior del gráfico, podés activar/desactivar dinámicamente esa inversión específica. Al hacerlo:
+* Se oculta/muestra la curva correspondiente en el gráfico de líneas.
+* Se oculta/muestra su tarjeta de métricas o tarjeta comparativa en el panel principal del dashboard.
+* El botón de la leyenda se atenúa visualmente (con estilo tachado y semi-transparente) al estar inactivo.
 
 ### 6. Privacidad y Portabilidad de Datos (100% Local)
 *   **Privacidad Absoluta:** Tus datos financieros no se envían a ningún servidor externo. Se guardan localmente en el almacenamiento seguro de tu propio navegador (`localStorage`).

@@ -13,7 +13,9 @@ let state = {
     currentCotizacion: 0,       // Cotización actual del fondo (último cierre)
     currentFechaCierre: '',     // Fecha del último cierre del fondo
     currentVarDiaria: null,      // Variación diaria calculada
-    chartInstance: null         // Instancia del gráfico Chart.js
+    chartInstance: null,         // Instancia del gráfico Chart.js
+    plazoFijoRates: [],          // Serie histórica de tasas plazo fijo
+    ratesFetched: false          // Flag para indicar si se cargaron las tasas
 };
 
 // SELECTORES DOM
@@ -58,7 +60,13 @@ const dom = {
     modalTitle: document.getElementById('modal-title'),
     modalBodyContent: document.getElementById('modal-body-content'),
     btnModalClose: document.getElementById('btn-modal-close'),
-    btnModalConfirm: document.getElementById('btn-modal-confirm')
+    btnModalConfirm: document.getElementById('btn-modal-confirm'),
+    
+    comparisonSection: document.getElementById('comparison-section'),
+    valCompPlazoFijo: document.getElementById('val-comp-plazofijo'),
+    diffCompPlazoFijo: document.getElementById('diff-comp-plazofijo'),
+    valCompMercadoPago: document.getElementById('val-comp-mercadopago'),
+    diffCompMercadoPago: document.getElementById('diff-comp-mercadopago')
 };
 
 // FORMATOS Y UTILIDADES
@@ -125,8 +133,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Registrar Event Listeners
     setupEventListeners();
     
-    // 4. Conectar con la API para traer cotización actual
-    fetchCurrentCotizacion();
+    // 4. Conectar con la API para traer cotización actual y luego las tasas históricas
+    fetchCurrentCotizacion().then(() => {
+        fetchHistoricalRates();
+    });
 });
 
 // EVENT LISTENERS
@@ -242,6 +252,127 @@ const fetchCurrentCotizacion = async () => {
         }
     }
 };
+
+// FETCH TASAS DE PLAZO FIJO (API)
+const fetchHistoricalRates = async () => {
+    try {
+        const res = await fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias');
+        if (!res.ok) throw new Error('Error al descargar tasas históricas');
+        const data = await res.json();
+        
+        // Ordenar cronológicamente (ascendente) por fecha
+        state.plazoFijoRates = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+        state.ratesFetched = true;
+        
+        console.log(`Tasas cargadas: ${state.plazoFijoRates.length} registros`);
+        
+        // Si ya hay suscripciones cargadas, recalcular todo para mostrar la comparativa
+        if (state.subscriptions.length > 0) {
+            recalculateAndRender();
+        }
+    } catch (err) {
+        console.error('Error cargando tasas históricas:', err);
+        // Intentar cargar algunas tasas por defecto en caso de falla
+        state.plazoFijoRates = [
+            { fecha: '2026-01-01', valor: 30.0 }
+        ];
+        state.ratesFetched = false;
+    }
+};
+
+// OBTENER LA TASA TNA PARA UNA FECHA ESPECÍFICA (O LA ANTERIOR MÁS CERCANA)
+const getTnaForDate = (dateStr) => {
+    if (!state.plazoFijoRates || state.plazoFijoRates.length === 0) return 30.0; // TNA por defecto
+    
+    const targetTime = new Date(dateStr).getTime();
+    let lastRate = 30.0;
+    
+    for (const r of state.plazoFijoRates) {
+        const rTime = new Date(r.fecha).getTime();
+        if (rTime <= targetTime) {
+            lastRate = r.valor;
+        } else {
+            break; // Detener ya que están ordenadas
+        }
+    }
+    return lastRate;
+};
+
+// ALGORITMO SIMULACIÓN PLAZO FIJO COMPUESTO CADA 30 DÍAS
+const simulatePlazoFijo = (amount, startDateStr, endDateStr) => {
+    let start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    let capital = amount;
+    
+    if (start >= end) return amount;
+    
+    // Loop en periodos de 30 días
+    while (true) {
+        const nextPeriod = new Date(start);
+        nextPeriod.setDate(nextPeriod.getDate() + 30);
+        
+        if (nextPeriod <= end) {
+            const dateStr = start.toISOString().split('T')[0];
+            const tna = getTnaForDate(dateStr);
+            const interest = capital * (tna / 100) * (30 / 365);
+            capital += interest;
+            start = nextPeriod;
+        } else {
+            break;
+        }
+    }
+    
+    // Proporcional de días remanentes al final
+    const diffTime = Math.abs(end - start);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (diffDays > 0 && start < end) {
+        const dateStr = start.toISOString().split('T')[0];
+        const tna = getTnaForDate(dateStr);
+        const interest = capital * (tna / 100) * (diffDays / 365);
+        capital += interest;
+    }
+    
+    return capital;
+};
+
+// ALGORITMO SIMULACIÓN MERCADO PAGO COMPUESTO DIARIO
+const simulateMercadoPago = (amount, startDateStr, endDateStr) => {
+    let start = new Date(startDateStr);
+    const end = new Date(endDateStr);
+    let capital = amount;
+    
+    if (start >= end) return amount;
+    
+    // Clonar para el bucle diario
+    const current = new Date(start);
+    while (current < end) {
+        const dateStr = current.toISOString().split('T')[0];
+        const tnaPF = getTnaForDate(dateStr);
+        // Tasa MP aproximada: 85% de la TNA de plazo fijo
+        const tnaMP = tnaPF * 0.85;
+        const dailyInterest = capital * (tnaMP / 100) / 365;
+        capital += dailyInterest;
+        current.setDate(current.getDate() + 1);
+    }
+    
+    return capital;
+};
+
+// FORMATO DE ETIQUETA COMPARATIVA (+/-)
+const formatDiffBadge = (element, value, percent) => {
+    element.className = 'comp-diff'; // Reset class
+    const formattedVal = formatARS(Math.abs(value));
+    const formattedPct = Math.abs(percent).toFixed(2) + '%';
+    
+    if (value >= 0) {
+        element.classList.add('positive');
+        element.innerHTML = `<i class="fa-solid fa-caret-up"></i> +${formattedVal} (+${formattedPct}) vs. Delta`;
+    } else {
+        element.classList.add('negative');
+        element.innerHTML = `<i class="fa-solid fa-caret-down"></i> -${formattedVal} (-${formattedPct}) vs. Delta`;
+    }
+};
+
 
 // MANEJAR EL ESTADO VISUAL DE LA API
 const setApiStatus = (type, message) => {
@@ -473,11 +604,40 @@ const recalculateAndRender = () => {
         dom.metricGananciaIcon.innerHTML = '<i class="fa-solid fa-arrow-trend-down"></i>';
     }
     
-    // 3. Renderizar la tabla de movimientos
+    // 3. Calcular e imprimir comparativa de inversiones si hay datos y tasas cargadas
+    let totalPlazoFijoVal = 0;
+    let totalMercadoPagoVal = 0;
+    
+    if (state.subscriptions.length > 0 && state.ratesFetched) {
+        dom.comparisonSection.classList.remove('hidden');
+        
+        const endSimulationDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
+        
+        state.subscriptions.forEach(s => {
+            totalPlazoFijoVal += simulatePlazoFijo(s.amount, s.date, endSimulationDate);
+            totalMercadoPagoVal += simulateMercadoPago(s.amount, s.date, endSimulationDate);
+        });
+        
+        // Renderizar Plazo Fijo
+        dom.valCompPlazoFijo.innerText = formatARS(totalPlazoFijoVal);
+        const diffPF = totalPlazoFijoVal - tenenciaValorizada;
+        const diffPFPercent = tenenciaValorizada > 0 ? (diffPF / tenenciaValorizada) * 100 : 0;
+        formatDiffBadge(dom.diffCompPlazoFijo, diffPF, diffPFPercent);
+        
+        // Renderizar Mercado Pago
+        dom.valCompMercadoPago.innerText = formatARS(totalMercadoPagoVal);
+        const diffMP = totalMercadoPagoVal - tenenciaValorizada;
+        const diffMPPercent = tenenciaValorizada > 0 ? (diffMP / tenenciaValorizada) * 100 : 0;
+        formatDiffBadge(dom.diffCompMercadoPago, diffMP, diffMPPercent);
+    } else {
+        dom.comparisonSection.classList.add('hidden');
+    }
+    
+    // 4. Renderizar la tabla de movimientos
     renderMovementsTable();
     
-    // 4. Renderizar o actualizar el gráfico de evolución
-    renderChart(capitalTotal, cuotapartesTotales, tenenciaValorizada);
+    // 5. Renderizar o actualizar el gráfico de evolución
+    renderChart(capitalTotal, cuotapartesTotales, tenenciaValorizada, totalPlazoFijoVal, totalMercadoPagoVal);
 };
 
 // RENDERIZAR TABLA DE MOVIMIENTOS
@@ -534,7 +694,7 @@ const renderMovementsTable = (searchTerm = '') => {
 };
 
 // RENDERIZAR O ACTUALIZAR GRÁFICO (Chart.js)
-const renderChart = (totalCapital, totalCuotapartes, currentValuation) => {
+const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlazoFijoVal, totalMercadoPagoVal) => {
     // Si no hay datos, mostrar placeholder del gráfico
     if (state.subscriptions.length === 0) {
         dom.chartPlaceholder.classList.remove('hidden');
@@ -562,18 +722,27 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation) => {
         // La tenencia valorizada histórica en esta fecha se calcula en base a la cotización registrada ese día
         const valuationOnDate = accumCuotapartes * s.cotizacion;
         
+        // Simular Plazo Fijo y Mercado Pago acumulado hasta esta fecha s.date para las suscripciones hechas hasta ahora
+        const subsUpToThisDate = chronSub.filter(sub => new Date(sub.date) <= new Date(s.date));
+        const pfValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.amount, sub.date, s.date), 0) : 0;
+        const mpValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateMercadoPago(sub.amount, sub.date, s.date), 0) : 0;
+        
         // Si ya hay un data point en la misma fecha (ej: múltiples cargas el mismo día), lo actualizamos
         const existingPoint = dataPoints.find(dp => dp.date === s.date);
         if (existingPoint) {
             existingPoint.capital = accumCapital;
             existingPoint.cuotapartes = accumCuotapartes;
             existingPoint.valuation = valuationOnDate;
+            existingPoint.plazoFijo = pfValuationOnDate;
+            existingPoint.mercadoPago = mpValuationOnDate;
         } else {
             dataPoints.push({
                 date: s.date,
                 capital: accumCapital,
                 cuotapartes: accumCuotapartes,
-                valuation: valuationOnDate
+                valuation: valuationOnDate,
+                plazoFijo: pfValuationOnDate,
+                mercadoPago: mpValuationOnDate
             });
         }
     });
@@ -584,21 +753,30 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation) => {
     
     // Añadimos solo si la fecha del cierre de la API es posterior a la última suscripción
     if (latestDateInSubs && new Date(apiCloseDate) > new Date(latestDateInSubs)) {
+        const pfValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const mpValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulateMercadoPago(sub.amount, sub.date, apiCloseDate), 0) : 0;
+        
         dataPoints.push({
             date: apiCloseDate,
             capital: totalCapital,
             cuotapartes: totalCuotapartes,
-            valuation: currentValuation
+            valuation: currentValuation,
+            plazoFijo: pfValToday,
+            mercadoPago: mpValToday
         });
     } else if (dataPoints.length > 0) {
-        // Si la cotización actual es del mismo día o anterior, actualizamos la última valuación con la cotización de la API
+        // Si la cotización actual es del mismo día o anterior, actualizamos la última valuación con la cotización de la API y las simuladas
         dataPoints[dataPoints.length - 1].valuation = currentValuation;
+        dataPoints[dataPoints.length - 1].plazoFijo = totalPlazoFijoVal;
+        dataPoints[dataPoints.length - 1].mercadoPago = totalMercadoPagoVal;
     }
     
     // Preparar arrays para el gráfico
     const labels = dataPoints.map(dp => formatDateToLocale(dp.date));
     const capitalData = dataPoints.map(dp => dp.capital);
     const valuationData = dataPoints.map(dp => dp.valuation);
+    const pfData = dataPoints.map(dp => dp.plazoFijo || 0);
+    const mpData = dataPoints.map(dp => dp.mercadoPago || 0);
     
     // Configuración de Chart.js
     const ctx = document.getElementById('savings-chart').getContext('2d');
@@ -608,14 +786,13 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation) => {
         state.chartInstance.destroy();
     }
     
-    // Gradiente para Capital Invertido
+    // Gradientes
     const gradCapital = ctx.createLinearGradient(0, 0, 0, 300);
-    gradCapital.addColorStop(0, 'rgba(59, 130, 246, 0.3)');
+    gradCapital.addColorStop(0, 'rgba(59, 130, 246, 0.25)');
     gradCapital.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
     
-    // Gradiente para Tenencia Valorizada
     const gradTenencia = ctx.createLinearGradient(0, 0, 0, 300);
-    gradTenencia.addColorStop(0, 'rgba(139, 92, 246, 0.3)');
+    gradTenencia.addColorStop(0, 'rgba(139, 92, 246, 0.25)');
     gradTenencia.addColorStop(1, 'rgba(139, 92, 246, 0.0)');
     
     state.chartInstance = new Chart(ctx, {
@@ -624,24 +801,52 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation) => {
             labels: labels,
             datasets: [
                 {
-                    label: 'Tenencia Valorizada',
+                    label: 'Delta Retorno Real',
                     data: valuationData,
                     borderColor: '#a855f7',
                     borderWidth: 3,
                     backgroundColor: gradTenencia,
                     fill: true,
-                    tension: 0.2,
+                    tension: 0.15,
                     pointBackgroundColor: '#a855f7',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 1.5,
-                    pointRadius: 4,
-                    pointHoverRadius: 6
+                    pointRadius: 3.5,
+                    pointHoverRadius: 5.5
+                },
+                {
+                    label: 'Simulación Plazo Fijo',
+                    data: pfData,
+                    borderColor: '#f97316',
+                    borderWidth: 2,
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    tension: 0.1,
+                    pointBackgroundColor: '#f97316',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 4.5
+                },
+                {
+                    label: 'Simulación Mercado Pago',
+                    data: mpData,
+                    borderColor: '#0d9488',
+                    borderWidth: 2,
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    tension: 0.1,
+                    pointBackgroundColor: '#0d9488',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 4.5
                 },
                 {
                     label: 'Capital Invertido',
                     data: capitalData,
                     borderColor: '#3b82f6',
-                    borderWidth: 2.5,
+                    borderWidth: 2,
                     borderDash: [5, 5],
                     backgroundColor: gradCapital,
                     fill: true,
@@ -649,8 +854,8 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation) => {
                     pointBackgroundColor: '#3b82f6',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 1.5,
-                    pointRadius: 3,
-                    pointHoverRadius: 5
+                    pointRadius: 2,
+                    pointHoverRadius: 4
                 }
             ]
         },

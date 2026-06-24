@@ -15,7 +15,18 @@ let state = {
     currentVarDiaria: null,      // Variación diaria calculada
     chartInstance: null,         // Instancia del gráfico Chart.js
     plazoFijoRates: [],          // Serie histórica de tasas plazo fijo
-    ratesFetched: false          // Flag para indicar si se cargaron las tasas
+    dolarBlueRates: [],          // Serie histórica del dólar blue
+    naranjaxTnaCurrent: 0.18,    // Tasa actual de Naranja X (18% por defecto)
+    ratesFetched: false,         // Flag para indicar si se cargaron las tasas de PF
+    dolarFetched: false,         // Flag para indicar si se cargaron las tasas del dólar
+    activeInvestments: {         // Filtro de visibilidad para cada tipo de inversión
+        capital: true,
+        delta: true,
+        plazofijo: true,
+        mercadopago: true,
+        naranjax: true,
+        dolar: true
+    }
 };
 
 // SELECTORES DOM
@@ -42,7 +53,7 @@ const dom = {
     valTotalSuscripciones: document.getElementById('val-total-suscripciones'),
     valTenenciaValorizada: document.getElementById('val-tenencia-valorizada'),
     valTotalCuotapartes: document.getElementById('val-total-cuotapartes'),
-    metricGananciaBox: document.getElementById('metric-ganancia-box'),
+    metricGananciaBox: document.getElementById('card-ganancia'),
     metricGananciaIcon: document.getElementById('metric-ganancia-icon'),
     valGananciaNeta: document.getElementById('val-ganancia-neta'),
     valGananciaPorcentaje: document.getElementById('val-ganancia-porcentaje'),
@@ -66,7 +77,20 @@ const dom = {
     valCompPlazoFijo: document.getElementById('val-comp-plazofijo'),
     diffCompPlazoFijo: document.getElementById('diff-comp-plazofijo'),
     valCompMercadoPago: document.getElementById('val-comp-mercadopago'),
-    diffCompMercadoPago: document.getElementById('diff-comp-mercadopago')
+    diffCompMercadoPago: document.getElementById('diff-comp-mercadopago'),
+    
+    valCompNaranjaX: document.getElementById('val-comp-naranjax'),
+    diffCompNaranjaX: document.getElementById('diff-comp-naranjax'),
+    valCompDolar: document.getElementById('val-comp-dolar'),
+    diffCompDolar: document.getElementById('diff-comp-dolar'),
+    
+    cardCapital: document.getElementById('card-capital'),
+    cardDelta: document.getElementById('card-delta'),
+    cardGanancia: document.getElementById('card-ganancia'),
+    cardPlazoFijo: document.getElementById('card-plazofijo'),
+    cardMercadoPago: document.getElementById('card-mercadopago'),
+    cardNaranjaX: document.getElementById('card-naranjax'),
+    cardDolar: document.getElementById('card-dolar')
 };
 
 // FORMATOS Y UTILIDADES
@@ -185,6 +209,51 @@ const setupEventListeners = () => {
             dom.modalContainer.classList.add('hidden');
         }
     });
+
+    // Leyenda Interactiva (Filtros del Gráfico y Tarjetas)
+    document.querySelectorAll('.legend-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            const target = e.currentTarget.getAttribute('data-target');
+            if (!target || !state.activeInvestments.hasOwnProperty(target)) return;
+            
+            // Alternar estado
+            state.activeInvestments[target] = !state.activeInvestments[target];
+            
+            // Alternar clase .inactive en el botón clickeado
+            if (state.activeInvestments[target]) {
+                e.currentTarget.classList.remove('inactive');
+            } else {
+                e.currentTarget.classList.add('inactive');
+            }
+            
+            // Alternar clase .hidden en la tarjeta asociada
+            const cardElement = dom['card' + target.charAt(0).toUpperCase() + target.slice(1)];
+            if (cardElement) {
+                if (state.activeInvestments[target]) {
+                    cardElement.classList.remove('hidden');
+                } else {
+                    cardElement.classList.add('hidden');
+                }
+            }
+            
+            // Alternar visibilidad de la serie en el gráfico con animación suave
+            if (state.chartInstance) {
+                const labelMap = {
+                    delta: 'Delta Retorno Real',
+                    plazofijo: 'Simulación Plazo Fijo',
+                    mercadopago: 'Simulación Mercado Pago',
+                    naranjax: 'Simulación Naranja X',
+                    dolar: 'Simulación Dólar Blue',
+                    capital: 'Capital Invertido'
+                };
+                const datasetIndex = state.chartInstance.data.datasets.findIndex(ds => ds.label === labelMap[target]);
+                if (datasetIndex !== -1) {
+                    state.chartInstance.setDatasetVisibility(datasetIndex, state.activeInvestments[target]);
+                    state.chartInstance.update();
+                }
+            }
+        });
+    });
 };
 
 // FETCH COTIZACIÓN ACTUAL Y ANTERIOR (API)
@@ -253,30 +322,64 @@ const fetchCurrentCotizacion = async () => {
     }
 };
 
-// FETCH TASAS DE PLAZO FIJO (API)
+// FETCH TASAS DE PLAZO FIJO, DÓLAR BLUE Y TASA DE NARANJA X (API)
 const fetchHistoricalRates = async () => {
-    try {
-        const res = await fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias');
-        if (!res.ok) throw new Error('Error al descargar tasas históricas');
-        const data = await res.json();
-        
-        // Ordenar cronológicamente (ascendente) por fecha
-        state.plazoFijoRates = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-        state.ratesFetched = true;
-        
-        console.log(`Tasas cargadas: ${state.plazoFijoRates.length} registros`);
-        
-        // Si ya hay suscripciones cargadas, recalcular todo para mostrar la comparativa
-        if (state.subscriptions.length > 0) {
-            recalculateAndRender();
-        }
-    } catch (err) {
-        console.error('Error cargando tasas históricas:', err);
-        // Intentar cargar algunas tasas por defecto en caso de falla
-        state.plazoFijoRates = [
-            { fecha: '2026-01-01', valor: 30.0 }
-        ];
-        state.ratesFetched = false;
+    setApiStatus('loading', 'Cargando datos históricos y de comparación...');
+    
+    // 1. Fetch Plazo Fijo Rates
+    const pfPromise = fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias')
+        .then(async res => {
+            if (!res.ok) throw new Error('Error en plazo fijo');
+            const data = await res.json();
+            state.plazoFijoRates = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            state.ratesFetched = true;
+            console.log(`Tasas Plazo Fijo cargadas: ${state.plazoFijoRates.length} registros`);
+        })
+        .catch(err => {
+            console.error('Error cargando tasas históricas de Plazo Fijo:', err);
+            state.plazoFijoRates = [{ fecha: '2026-01-01', valor: 30.0 }];
+            state.ratesFetched = false;
+        });
+
+    // 2. Fetch Dolar Blue Rates
+    const dolarPromise = fetch('https://api.argentinadatos.com/v1/cotizaciones/dolares/blue')
+        .then(async res => {
+            if (!res.ok) throw new Error('Error en dólar blue');
+            const data = await res.json();
+            state.dolarBlueRates = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            state.dolarFetched = true;
+            console.log(`Cotizaciones Dólar Blue cargadas: ${state.dolarBlueRates.length} registros`);
+        })
+        .catch(err => {
+            console.error('Error cargando tasas de Dólar Blue:', err);
+            state.dolarBlueRates = [];
+            state.dolarFetched = false;
+        });
+
+    // 3. Fetch Naranja X Current Rate
+    const nxPromise = fetch('https://api.argentinadatos.com/v1/finanzas/fci/otros/ultimo')
+        .then(async res => {
+            if (!res.ok) throw new Error('Error en tasa Naranja X');
+            const data = await res.json();
+            const nxInfo = data.find(item => item.fondo === 'NARANJA X');
+            if (nxInfo && typeof nxInfo.tna === 'number') {
+                state.naranjaxTnaCurrent = nxInfo.tna;
+                console.log(`Tasa Naranja X actual: ${state.naranjaxTnaCurrent}`);
+            }
+        })
+        .catch(err => {
+            console.error('Error cargando tasa de Naranja X:', err);
+            // Mantiene el valor por defecto (0.18)
+        });
+
+    // Esperar a que se resuelvan todas las promesas
+    await Promise.allSettled([pfPromise, dolarPromise, nxPromise]);
+    
+    setApiStatus('success', 'API Conectada');
+    
+    // Si ya hay suscripciones cargadas, recalcular todo para mostrar la comparativa
+    if (state.subscriptions.length > 0) {
+        recalculateAndRender();
     }
 };
 
@@ -356,6 +459,80 @@ const simulateMercadoPago = (amount, startDateStr, endDateStr) => {
     }
     
     return capital;
+};
+
+// OBTENER LA COTIZACIÓN DEL DÓLAR BLUE PARA UNA FECHA ESPECÍFICA (O LA ANTERIOR MÁS CERCANA)
+const getDolarBlueRateForDate = (dateStr) => {
+    if (!state.dolarBlueRates || state.dolarBlueRates.length === 0) return null;
+    
+    const targetTime = new Date(dateStr).getTime();
+    let lastRate = null;
+    
+    for (const r of state.dolarBlueRates) {
+        const rTime = new Date(r.fecha).getTime();
+        if (rTime <= targetTime) {
+            lastRate = r;
+        } else {
+            break; // Detener ya que están ordenadas
+        }
+    }
+    return lastRate || state.dolarBlueRates[0];
+};
+
+// ALGORITMO SIMULACIÓN DÓLAR BLUE (COMPRA/VENTA HISTÓRICA)
+const simulateDolarBlue = (amount, startDateStr, endDateStr) => {
+    const startRate = getDolarBlueRateForDate(startDateStr);
+    const endRate = getDolarBlueRateForDate(endDateStr);
+    
+    if (!startRate || !endRate || startRate.venta <= 0) {
+        return amount; // Fallback
+    }
+    
+    const usd = amount / startRate.venta;
+    return usd * endRate.compra;
+};
+
+// ALGORITMO SIMULACIÓN NARANJA X COMPUESTO DIARIO CON TOPE
+const simulateNaranjaXSeries = (subscriptions, endDateStr) => {
+    if (!subscriptions || subscriptions.length === 0) return {};
+    
+    const sortedSubs = [...subscriptions].sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    const subsByDate = {};
+    sortedSubs.forEach(s => {
+        if (!subsByDate[s.date]) {
+            subsByDate[s.date] = 0;
+        }
+        subsByDate[s.date] += s.amount;
+    });
+    
+    const valuations = {};
+    let currentBalance = 0;
+    
+    let current = new Date(sortedSubs[0].date);
+    const end = new Date(endDateStr);
+    
+    while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        
+        if (subsByDate[dateStr]) {
+            currentBalance += subsByDate[dateStr];
+        }
+        
+        const tnaPF = getTnaForDate(dateStr);
+        // Naranja X usa el 90% de la TNA de plazo fijo si está disponible, sino la tasa actual
+        const tnaNX = state.ratesFetched ? tnaPF * 0.90 : state.naranjaxTnaCurrent * 100;
+        
+        const interestEarningBalance = Math.min(currentBalance, 1000000);
+        const dailyInterest = interestEarningBalance * (tnaNX / 100) / 365;
+        
+        currentBalance += dailyInterest;
+        valuations[dateStr] = currentBalance;
+        
+        current.setDate(current.getDate() + 1);
+    }
+    
+    return valuations;
 };
 
 // FORMATO DE ETIQUETA COMPARATIVA (+/-)
@@ -604,11 +781,13 @@ const recalculateAndRender = () => {
         dom.metricGananciaIcon.innerHTML = '<i class="fa-solid fa-arrow-trend-down"></i>';
     }
     
-    // 3. Calcular e imprimir comparativa de inversiones si hay datos y tasas cargadas
+    // 3. Calcular e imprimir comparativa de inversiones si hay datos
     let totalPlazoFijoVal = 0;
     let totalMercadoPagoVal = 0;
+    let totalNaranjaXVal = 0;
+    let totalDolarVal = 0;
     
-    if (state.subscriptions.length > 0 && state.ratesFetched) {
+    if (state.subscriptions.length > 0 && (state.ratesFetched || state.dolarFetched)) {
         dom.comparisonSection.classList.remove('hidden');
         
         const endSimulationDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
@@ -616,7 +795,12 @@ const recalculateAndRender = () => {
         state.subscriptions.forEach(s => {
             totalPlazoFijoVal += simulatePlazoFijo(s.amount, s.date, endSimulationDate);
             totalMercadoPagoVal += simulateMercadoPago(s.amount, s.date, endSimulationDate);
+            totalDolarVal += simulateDolarBlue(s.amount, s.date, endSimulationDate);
         });
+        
+        // Naranja X se simula como portafolio unificado
+        const nxValuationsMap = simulateNaranjaXSeries(state.subscriptions, endSimulationDate);
+        totalNaranjaXVal = nxValuationsMap[endSimulationDate] || 0;
         
         // Renderizar Plazo Fijo
         dom.valCompPlazoFijo.innerText = formatARS(totalPlazoFijoVal);
@@ -629,6 +813,18 @@ const recalculateAndRender = () => {
         const diffMP = totalMercadoPagoVal - tenenciaValorizada;
         const diffMPPercent = tenenciaValorizada > 0 ? (diffMP / tenenciaValorizada) * 100 : 0;
         formatDiffBadge(dom.diffCompMercadoPago, diffMP, diffMPPercent);
+
+        // Renderizar Naranja X
+        dom.valCompNaranjaX.innerText = formatARS(totalNaranjaXVal);
+        const diffNX = totalNaranjaXVal - tenenciaValorizada;
+        const diffNXPercent = tenenciaValorizada > 0 ? (diffNX / tenenciaValorizada) * 100 : 0;
+        formatDiffBadge(dom.diffCompNaranjaX, diffNX, diffNXPercent);
+        
+        // Renderizar Dólar Blue
+        dom.valCompDolar.innerText = formatARS(totalDolarVal);
+        const diffDolar = totalDolarVal - tenenciaValorizada;
+        const diffDolarPercent = tenenciaValorizada > 0 ? (diffDolar / tenenciaValorizada) * 100 : 0;
+        formatDiffBadge(dom.diffCompDolar, diffDolar, diffDolarPercent);
     } else {
         dom.comparisonSection.classList.add('hidden');
     }
@@ -636,8 +832,30 @@ const recalculateAndRender = () => {
     // 4. Renderizar la tabla de movimientos
     renderMovementsTable();
     
-    // 5. Renderizar o actualizar el gráfico de evolución
-    renderChart(capitalTotal, cuotapartesTotales, tenenciaValorizada, totalPlazoFijoVal, totalMercadoPagoVal);
+    // 5. Aplicar visibilidad de tarjetas del panel y la leyenda personalizada
+    const keys = ['capital', 'delta', 'plazofijo', 'mercadopago', 'naranjax', 'dolar'];
+    keys.forEach(key => {
+        const cardElement = dom['card' + key.charAt(0).toUpperCase() + key.slice(1)];
+        if (cardElement) {
+            if (state.activeInvestments[key]) {
+                cardElement.classList.remove('hidden');
+            } else {
+                cardElement.classList.add('hidden');
+            }
+        }
+        
+        const legendItem = document.querySelector(`.legend-item[data-target="${key}"]`);
+        if (legendItem) {
+            if (state.activeInvestments[key]) {
+                legendItem.classList.remove('inactive');
+            } else {
+                legendItem.classList.add('inactive');
+            }
+        }
+    });
+    
+    // 6. Renderizar o actualizar el gráfico de evolución
+    renderChart(capitalTotal, cuotapartesTotales, tenenciaValorizada, totalPlazoFijoVal, totalMercadoPagoVal, totalNaranjaXVal, totalDolarVal);
 };
 
 // RENDERIZAR TABLA DE MOVIMIENTOS
@@ -694,7 +912,7 @@ const renderMovementsTable = (searchTerm = '') => {
 };
 
 // RENDERIZAR O ACTUALIZAR GRÁFICO (Chart.js)
-const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlazoFijoVal, totalMercadoPagoVal) => {
+const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlazoFijoVal, totalMercadoPagoVal, totalNaranjaXVal, totalDolarVal) => {
     // Si no hay datos, mostrar placeholder del gráfico
     if (state.subscriptions.length === 0) {
         dom.chartPlaceholder.classList.remove('hidden');
@@ -710,6 +928,10 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     // Ordenar suscripciones de más vieja a más nueva para trazar la línea cronológica
     const chronSub = [...state.subscriptions].sort((a, b) => new Date(a.date) - new Date(b.date));
     
+    // Simular Naranja X para toda la serie hasta la última fecha de cierre disponible
+    const apiCloseDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
+    const nxValuationsMap = simulateNaranjaXSeries(chronSub, apiCloseDate);
+    
     // Agrupar por fechas
     const dataPoints = [];
     let accumCapital = 0;
@@ -722,10 +944,12 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
         // La tenencia valorizada histórica en esta fecha se calcula en base a la cotización registrada ese día
         const valuationOnDate = accumCuotapartes * s.cotizacion;
         
-        // Simular Plazo Fijo y Mercado Pago acumulado hasta esta fecha s.date para las suscripciones hechas hasta ahora
+        // Simular Plazo Fijo, Mercado Pago y Dolar Blue acumulados hasta esta fecha s.date
         const subsUpToThisDate = chronSub.filter(sub => new Date(sub.date) <= new Date(s.date));
         const pfValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.amount, sub.date, s.date), 0) : 0;
         const mpValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateMercadoPago(sub.amount, sub.date, s.date), 0) : 0;
+        const nxValuationOnDate = nxValuationsMap[s.date] || 0;
+        const dolarValuationOnDate = state.dolarFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateDolarBlue(sub.amount, sub.date, s.date), 0) : 0;
         
         // Si ya hay un data point en la misma fecha (ej: múltiples cargas el mismo día), lo actualizamos
         const existingPoint = dataPoints.find(dp => dp.date === s.date);
@@ -735,6 +959,8 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
             existingPoint.valuation = valuationOnDate;
             existingPoint.plazoFijo = pfValuationOnDate;
             existingPoint.mercadoPago = mpValuationOnDate;
+            existingPoint.naranjax = nxValuationOnDate;
+            existingPoint.dolar = dolarValuationOnDate;
         } else {
             dataPoints.push({
                 date: s.date,
@@ -742,19 +968,22 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
                 cuotapartes: accumCuotapartes,
                 valuation: valuationOnDate,
                 plazoFijo: pfValuationOnDate,
-                mercadoPago: mpValuationOnDate
+                mercadoPago: mpValuationOnDate,
+                naranjax: nxValuationOnDate,
+                dolar: dolarValuationOnDate
             });
         }
     });
     
     // 3. Añadir el punto actual (hoy) para cerrar el gráfico en la cotización vigente
     const latestDateInSubs = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].date : '';
-    const apiCloseDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
     
     // Añadimos solo si la fecha del cierre de la API es posterior a la última suscripción
     if (latestDateInSubs && new Date(apiCloseDate) > new Date(latestDateInSubs)) {
         const pfValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.amount, sub.date, apiCloseDate), 0) : 0;
         const mpValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulateMercadoPago(sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const nxValToday = nxValuationsMap[apiCloseDate] || 0;
+        const dolarValToday = state.dolarFetched ? chronSub.reduce((sum, sub) => sum + simulateDolarBlue(sub.amount, sub.date, apiCloseDate), 0) : 0;
         
         dataPoints.push({
             date: apiCloseDate,
@@ -762,13 +991,17 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
             cuotapartes: totalCuotapartes,
             valuation: currentValuation,
             plazoFijo: pfValToday,
-            mercadoPago: mpValToday
+            mercadoPago: mpValToday,
+            naranjax: nxValToday,
+            dolar: dolarValToday
         });
     } else if (dataPoints.length > 0) {
         // Si la cotización actual es del mismo día o anterior, actualizamos la última valuación con la cotización de la API y las simuladas
         dataPoints[dataPoints.length - 1].valuation = currentValuation;
         dataPoints[dataPoints.length - 1].plazoFijo = totalPlazoFijoVal;
         dataPoints[dataPoints.length - 1].mercadoPago = totalMercadoPagoVal;
+        dataPoints[dataPoints.length - 1].naranjax = totalNaranjaXVal;
+        dataPoints[dataPoints.length - 1].dolar = totalDolarVal;
     }
     
     // Preparar arrays para el gráfico
@@ -777,6 +1010,8 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     const valuationData = dataPoints.map(dp => dp.valuation);
     const pfData = dataPoints.map(dp => dp.plazoFijo || 0);
     const mpData = dataPoints.map(dp => dp.mercadoPago || 0);
+    const nxData = dataPoints.map(dp => dp.naranjax || 0);
+    const dolarData = dataPoints.map(dp => dp.dolar || 0);
     
     // Configuración de Chart.js
     const ctx = document.getElementById('savings-chart').getContext('2d');
@@ -812,35 +1047,68 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 1.5,
                     pointRadius: 3.5,
-                    pointHoverRadius: 5.5
+                    pointHoverRadius: 5.5,
+                    hidden: !state.activeInvestments.delta
                 },
                 {
                     label: 'Simulación Plazo Fijo',
                     data: pfData,
-                    borderColor: '#f97316',
+                    borderColor: '#eab308',
                     borderWidth: 2,
                     backgroundColor: 'transparent',
                     fill: false,
                     tension: 0.1,
-                    pointBackgroundColor: '#f97316',
+                    pointBackgroundColor: '#eab308',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 1.5,
                     pointRadius: 2.5,
-                    pointHoverRadius: 4.5
+                    pointHoverRadius: 4.5,
+                    hidden: !state.activeInvestments.plazofijo
                 },
                 {
                     label: 'Simulación Mercado Pago',
                     data: mpData,
-                    borderColor: '#0d9488',
+                    borderColor: '#06b6d4',
                     borderWidth: 2,
                     backgroundColor: 'transparent',
                     fill: false,
                     tension: 0.1,
-                    pointBackgroundColor: '#0d9488',
+                    pointBackgroundColor: '#06b6d4',
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 1.5,
                     pointRadius: 2.5,
-                    pointHoverRadius: 4.5
+                    pointHoverRadius: 4.5,
+                    hidden: !state.activeInvestments.mercadopago
+                },
+                {
+                    label: 'Simulación Naranja X',
+                    data: nxData,
+                    borderColor: '#ff5000',
+                    borderWidth: 2,
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    tension: 0.1,
+                    pointBackgroundColor: '#ff5000',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 4.5,
+                    hidden: !state.activeInvestments.naranjax
+                },
+                {
+                    label: 'Simulación Dólar Blue',
+                    data: dolarData,
+                    borderColor: '#10b981',
+                    borderWidth: 2,
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    tension: 0.1,
+                    pointBackgroundColor: '#10b981',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 4.5,
+                    hidden: !state.activeInvestments.dolar
                 },
                 {
                     label: 'Capital Invertido',
@@ -855,7 +1123,8 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
                     pointBorderColor: '#ffffff',
                     pointBorderWidth: 1.5,
                     pointRadius: 2,
-                    pointHoverRadius: 4
+                    pointHoverRadius: 4,
+                    hidden: !state.activeInvestments.capital
                 }
             ]
         },

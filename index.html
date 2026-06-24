@@ -125,7 +125,7 @@
                 <!-- Tarjetas de Métricas -->
                 <div class="metrics-grid">
                     <!-- Tarjeta 1: Total Invertido -->
-                    <div class="card glass-card metric-card border-left-blue">
+                    <div class="card glass-card metric-card border-left-blue" id="card-capital">
                         <div class="metric-icon bg-soft-blue">
                             <i class="fa-solid fa-wallet"></i>
                         </div>
@@ -137,7 +137,7 @@
                     </div>
 
                     <!-- Tarjeta 2: Tenencia Valorizada -->
-                    <div class="card glass-card metric-card border-left-purple">
+                    <div class="card glass-card metric-card border-left-purple" id="card-delta">
                         <div class="metric-icon bg-soft-purple">
                             <i class="fa-solid fa-chart-simple"></i>
                         </div>
@@ -149,7 +149,7 @@
                     </div>
 
                     <!-- Tarjeta 3: Ganancia Absoluta -->
-                    <div class="card glass-card metric-card border-left-green" id="metric-ganancia-box">
+                    <div class="card glass-card metric-card border-left-green" id="card-ganancia">
                         <div class="metric-icon bg-soft-green" id="metric-ganancia-icon">
                             <i class="fa-solid fa-arrow-trend-up"></i>
                         </div>
@@ -160,13 +160,14 @@
                         </div>
                     </div>
                 </div>
+
                 <!-- Panel de Comparativa de Inversiones -->
                 <div class="comparison-grid hidden" id="comparison-section">
                     <!-- Plazo Fijo Banco Nación -->
-                    <div class="card glass-card comparison-card border-left-orange">
+                    <div class="card glass-card comparison-card border-left-plazofijo" id="card-plazofijo">
                         <div class="comp-header">
                             <span class="comp-label"><i class="fa-solid fa-building-columns"></i> Simulación Plazo Fijo BNA</span>
-                            <span class="comp-badge badge-orange">TNA BCRA Compuesto 30d</span>
+                            <span class="comp-badge badge-plazofijo">TNA BCRA Compuesto 30d</span>
                         </div>
                         <div class="comp-body">
                             <h4 class="comp-value" id="val-comp-plazofijo">$0,00</h4>
@@ -175,14 +176,38 @@
                     </div>
 
                     <!-- Mercado Pago FCI -->
-                    <div class="card glass-card comparison-card border-left-teal">
+                    <div class="card glass-card comparison-card border-left-mercadopago" id="card-mercadopago">
                         <div class="comp-header">
                             <span class="comp-label"><i class="fa-solid fa-wallet"></i> Simulación Mercado Pago</span>
-                            <span class="comp-badge badge-teal">Interés Compuesto Diario</span>
+                            <span class="comp-badge badge-mercadopago">Interés Compuesto Diario</span>
                         </div>
                         <div class="comp-body">
                             <h4 class="comp-value" id="val-comp-mercadopago">$0,00</h4>
                             <span class="comp-diff" id="diff-comp-mercadopago">--- vs. Delta</span>
+                        </div>
+                    </div>
+
+                    <!-- Naranja X (Frascos) -->
+                    <div class="card glass-card comparison-card border-left-naranjax" id="card-naranjax">
+                        <div class="comp-header">
+                            <span class="comp-label"><i class="fa-solid fa-box-archive"></i> Simulación Naranja X</span>
+                            <span class="comp-badge badge-naranjax">Frascos Compuesto Diario</span>
+                        </div>
+                        <div class="comp-body">
+                            <h4 class="comp-value" id="val-comp-naranjax">$0,00</h4>
+                            <span class="comp-diff" id="diff-comp-naranjax">--- vs. Delta</span>
+                        </div>
+                    </div>
+
+                    <!-- Dólar Blue -->
+                    <div class="card glass-card comparison-card border-left-dolar" id="card-dolar">
+                        <div class="comp-header">
+                            <span class="comp-label"><i class="fa-solid fa-dollar-sign"></i> Simulación Dólar Blue</span>
+                            <span class="comp-badge badge-dolar">Venta/Compra Histórico</span>
+                        </div>
+                        <div class="comp-body">
+                            <h4 class="comp-value" id="val-comp-dolar">$0,00</h4>
+                            <span class="comp-diff" id="diff-comp-dolar">--- vs. Delta</span>
                         </div>
                     </div>
                 </div>
@@ -192,10 +217,12 @@
                     <div class="chart-header">
                         <h2 class="card-title"><i class="fa-regular fa-chart-bar"></i> Evolución de tus Ahorros</h2>
                         <div class="chart-legend-custom">
-                            <span class="legend-item"><span class="legend-dot color-capital"></span> Capital Invertido</span>
-                            <span class="legend-item"><span class="legend-dot color-tenencia"></span> Delta Retorno Real</span>
-                            <span class="legend-item"><span class="legend-dot color-plazofijo"></span> Plazo Fijo (BNA)</span>
-                            <span class="legend-item"><span class="legend-dot color-mercadopago"></span> Mercado Pago</span>
+                            <span class="legend-item" data-target="capital"><span class="legend-dot color-capital"></span> Capital Invertido</span>
+                            <span class="legend-item" data-target="delta"><span class="legend-dot color-tenencia"></span> Delta Retorno Real</span>
+                            <span class="legend-item" data-target="plazofijo"><span class="legend-dot color-plazofijo"></span> Plazo Fijo (BNA)</span>
+                            <span class="legend-item" data-target="mercadopago"><span class="legend-dot color-mercadopago"></span> Mercado Pago</span>
+                            <span class="legend-item" data-target="naranjax"><span class="legend-dot color-naranjax"></span> Naranja X</span>
+                            <span class="legend-item" data-target="dolar"><span class="legend-dot color-dolar"></span> Dólar Blue</span>
                         </div>
                     </div>
 
