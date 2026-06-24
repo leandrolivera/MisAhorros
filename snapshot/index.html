@@ -160,32 +160,6 @@
                         </div>
                     </div>
                 </div>
-                <!-- Panel de Comparativa de Inversiones -->
-                <div class="comparison-grid hidden" id="comparison-section">
-                    <!-- Plazo Fijo Banco Nación -->
-                    <div class="card glass-card comparison-card border-left-orange">
-                        <div class="comp-header">
-                            <span class="comp-label"><i class="fa-solid fa-building-columns"></i> Simulación Plazo Fijo BNA</span>
-                            <span class="comp-badge badge-orange">TNA BCRA Compuesto 30d</span>
-                        </div>
-                        <div class="comp-body">
-                            <h4 class="comp-value" id="val-comp-plazofijo">$0,00</h4>
-                            <span class="comp-diff" id="diff-comp-plazofijo">--- vs. Delta</span>
-                        </div>
-                    </div>
-
-                    <!-- Mercado Pago FCI -->
-                    <div class="card glass-card comparison-card border-left-teal">
-                        <div class="comp-header">
-                            <span class="comp-label"><i class="fa-solid fa-wallet"></i> Simulación Mercado Pago</span>
-                            <span class="comp-badge badge-teal">Interés Compuesto Diario</span>
-                        </div>
-                        <div class="comp-body">
-                            <h4 class="comp-value" id="val-comp-mercadopago">$0,00</h4>
-                            <span class="comp-diff" id="diff-comp-mercadopago">--- vs. Delta</span>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Gráfico de Evolución -->
                 <div class="card glass-card chart-card">
@@ -193,12 +167,9 @@
                         <h2 class="card-title"><i class="fa-regular fa-chart-bar"></i> Evolución de tus Ahorros</h2>
                         <div class="chart-legend-custom">
                             <span class="legend-item"><span class="legend-dot color-capital"></span> Capital Invertido</span>
-                            <span class="legend-item"><span class="legend-dot color-tenencia"></span> Delta Retorno Real</span>
-                            <span class="legend-item"><span class="legend-dot color-plazofijo"></span> Plazo Fijo (BNA)</span>
-                            <span class="legend-item"><span class="legend-dot color-mercadopago"></span> Mercado Pago</span>
+                            <span class="legend-item"><span class="legend-dot color-tenencia"></span> Tenencia Valorizada</span>
                         </div>
                     </div>
-
                     <div class="chart-container">
                         <canvas id="savings-chart"></canvas>
                         <!-- Mensaje de no datos -->

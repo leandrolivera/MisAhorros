@@ -1,0 +1,58 @@
+[
+  {
+    "id": "sub_demo_1",
+    "date": "2026-06-16",
+    "amount": 9532.8,
+    "cuotapartes": 91.776287,
+    "cotizacion": 103.869968,
+    "manual": false
+  },
+  {
+    "id": "sub_demo_2",
+    "date": "2026-06-05",
+    "amount": 35000.0,
+    "cuotapartes": 338.164251,
+    "cotizacion": 103.5,
+    "manual": false
+  },
+  {
+    "id": "sub_demo_3",
+    "date": "2026-06-04",
+    "amount": 33600.0,
+    "cuotapartes": 324.951644,
+    "cotizacion": 103.4,
+    "manual": false
+  },
+  {
+    "id": "sub_demo_4",
+    "date": "2026-06-03",
+    "amount": 260000.0,
+    "cuotapartes": 2516.940949,
+    "cotizacion": 103.3,
+    "manual": false
+  },
+  {
+    "id": "sub_demo_5",
+    "date": "2026-06-02",
+    "amount": 105420.0,
+    "cuotapartes": 1021.511628,
+    "cotizacion": 103.2,
+    "manual": false
+  },
+  {
+    "id": "sub_demo_6",
+    "date": "2026-06-01",
+    "amount": 652602.67,
+    "cuotapartes": 6338.340704,
+    "cotizacion": 102.961122,
+    "manual": false
+  },
+  {
+    "id": "sub_demo_7",
+    "date": "2026-06-01",
+    "amount": 170000.0,
+    "cuotapartes": 1651.108637,
+    "cotizacion": 102.961122,
+    "manual": false
+  }
+]
