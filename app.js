@@ -556,6 +556,7 @@ const simulateNaranjaXSeries = (subscriptions, endDateStr) => {
         
         if (subsByDate[dateStr]) {
             currentBalance += subsByDate[dateStr];
+            if (currentBalance < 0) currentBalance = 0;
         }
         
         const tnaPF = getTnaForDate(dateStr);
