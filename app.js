@@ -301,7 +301,7 @@ const fetchCurrentCotizacion = async () => {
     
     try {
         // 1. Obtener última cotización
-        const responseUltimo = await fetch(`${API_URL_BASE}/ultimo`);
+        const responseUltimo = await fetch(`${API_URL_BASE}/ultimo`, { cache: 'no-cache' });
         if (!responseUltimo.ok) throw new Error('Error al conectar con la API de ArgentinaDatos');
         
         const dataUltimo = await responseUltimo.json();
@@ -320,7 +320,7 @@ const fetchCurrentCotizacion = async () => {
 
         // 2. Intentar obtener penúltima cotización para calcular variación diaria
         try {
-            const responsePenultimo = await fetch(`${API_URL_BASE}/penultimo`);
+            const responsePenultimo = await fetch(`${API_URL_BASE}/penultimo`, { cache: 'no-cache' });
             if (responsePenultimo.ok) {
                 const dataPenultimo = await responsePenultimo.json();
                 const fundPenultimo = dataPenultimo.find(f => f.fondo === FUND_NAME);
@@ -365,8 +365,8 @@ const fetchCurrentCotizacion = async () => {
 const fetchHistoricalRates = async () => {
     setApiStatus('loading', 'Cargando datos históricos y de comparación...');
     
-    // 1. Fetch Plazo Fijo Rates
-    const pfPromise = fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias')
+    // Promesa 1: Tasas de Plazo Fijo
+    const pfPromise = fetch('https://api.argentinadatos.com/v1/finanzas/tasas/depositos30Dias', { cache: 'no-cache' })
         .then(async res => {
             if (!res.ok) throw new Error('Error en plazo fijo');
             const data = await res.json();
@@ -380,8 +380,8 @@ const fetchHistoricalRates = async () => {
             state.ratesFetched = false;
         });
 
-    // 2. Fetch Dolar Blue Rates
-    const dolarPromise = fetch('https://api.argentinadatos.com/v1/cotizaciones/dolares/blue')
+    // Promesa 2: Histórico de Dólar Blue
+    const dolarPromise = fetch('https://api.argentinadatos.com/v1/cotizaciones/dolares/blue', { cache: 'no-cache' })
         .then(async res => {
             if (!res.ok) throw new Error('Error en dólar blue');
             const data = await res.json();
@@ -395,8 +395,8 @@ const fetchHistoricalRates = async () => {
             state.dolarFetched = false;
         });
 
-    // 3. Fetch Naranja X Current Rate
-    const nxPromise = fetch('https://api.argentinadatos.com/v1/finanzas/fci/otros/ultimo')
+    // Promesa 3: Tasa de Naranja X (FCI)
+    const nxPromise = fetch('https://api.argentinadatos.com/v1/finanzas/fci/otros/ultimo', { cache: 'no-cache' })
         .then(async res => {
             if (!res.ok) throw new Error('Error en tasa Naranja X');
             const data = await res.json();
