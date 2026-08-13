@@ -142,10 +142,15 @@
                             <span class="input-help">Ingresá la cantidad exacta de tu comprobante del broker.</span>
                         </div>
 
-                        <!-- Botón Submit -->
-                        <button type="submit" class="btn btn-primary" id="btn-submit-form">
-                            <i class="fa-solid fa-check"></i> Cargar Movimiento
-                        </button>
+                        <!-- Botones de Acción -->
+                        <div style="display: flex; gap: 8px;">
+                            <button type="submit" class="btn btn-primary" id="btn-submit-form" style="flex: 1;">
+                                <i class="fa-solid fa-check"></i> <span id="text-submit-form">Cargar Movimiento</span>
+                            </button>
+                            <button type="button" class="btn btn-secondary hidden" id="btn-cancel-edit" style="width: auto; padding: 12px;" title="Cancelar Edición">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>>
                     </form>
                     
                     <!-- Loader del Formulario -->
@@ -285,14 +290,22 @@
                             <i class="fa-solid fa-magnifying-glass search-icon"></i>
                             <input type="text" id="search-input" placeholder="Buscar movimientos...">
                         </div>
-                        <!-- Botones de Backup -->
-                        <button class="btn btn-secondary" id="btn-export-data" title="Exportar JSON">
-                            <i class="fa-solid fa-download"></i> Exportar
-                        </button>
-                        <button class="btn btn-secondary" id="btn-import-data" title="Importar JSON">
-                            <i class="fa-solid fa-upload"></i> Importar
-                        </button>
-                        <input type="file" id="file-import-input" class="hidden" accept=".json">
+                        <!-- Botones de Backup y Limpieza -->
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                            <button class="btn btn-danger hidden" id="btn-delete-selected" title="Borrar Seleccionados">
+                                <i class="fa-solid fa-trash-can"></i> Seleccionados
+                            </button>
+                            <button class="btn btn-secondary" id="btn-export-data" title="Exportar JSON">
+                                <i class="fa-solid fa-download"></i> Exportar
+                            </button>
+                            <button class="btn btn-secondary" id="btn-import-data" title="Importar JSON">
+                                <i class="fa-solid fa-upload"></i> Importar
+                            </button>
+                            <input type="file" id="file-import-input" class="hidden" accept=".json">
+                            <button class="btn btn-danger" id="btn-clear-all" title="Limpiar Todo">
+                                <i class="fa-solid fa-broom"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 
@@ -300,6 +313,12 @@
                     <table class="data-table" id="movements-table">
                         <thead>
                             <tr>
+                                <th style="width: 40px; text-align: center;">
+                                    <div class="table-checkbox">
+                                        <input type="checkbox" id="check-all-movements">
+                                        <label for="check-all-movements"></label>
+                                    </div>
+                                </th>
                                 <th>Fecha</th>
                                 <th>Fondo</th>
                                 <th>Operación</th>

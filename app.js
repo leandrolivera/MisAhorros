@@ -19,6 +19,7 @@ let state = {
     naranjaxTnaCurrent: 0.18,    // Tasa actual de Naranja X (18% por defecto)
     ratesFetched: false,         // Flag para indicar si se cargaron las tasas de PF
     dolarFetched: false,         // Flag para indicar si se cargaron las tasas del dólar
+    editingId: null,             // ID del movimiento que se está editando
     activeInvestments: {         // Filtro de visibilidad para cada tipo de inversión
         capital: true,
         delta: true,
@@ -46,6 +47,8 @@ const dom = {
     cuotapartesGroup: document.getElementById('cuotapartes-group'),
     inputCuotapartes: document.getElementById('input-cuotapartes'),
     btnSubmitForm: document.getElementById('btn-submit-form'),
+    textSubmitForm: document.getElementById('text-submit-form'),
+    btnCancelEdit: document.getElementById('btn-cancel-edit'),
     formLoader: document.getElementById('form-loader'),
     formLoaderText: document.getElementById('form-loader-text'),
     
@@ -66,6 +69,9 @@ const dom = {
     btnExportData: document.getElementById('btn-export-data'),
     btnImportData: document.getElementById('btn-import-data'),
     fileImportInput: document.getElementById('file-import-input'),
+    btnDeleteSelected: document.getElementById('btn-delete-selected'),
+    btnClearAll: document.getElementById('btn-clear-all'),
+    checkAllMovements: document.getElementById('check-all-movements'),
     
     btnImportPdf: document.getElementById('btn-import-pdf'),
     filePdfInput: document.getElementById('file-pdf-input'),
@@ -185,6 +191,11 @@ const setupEventListeners = () => {
     // Envío del Formulario
     dom.subscriptionForm.addEventListener('submit', handleFormSubmit);
     
+    // Cancelar Edición
+    if (dom.btnCancelEdit) {
+        dom.btnCancelEdit.addEventListener('click', cancelEdit);
+    }
+    
     // Buscador en la tabla
     dom.searchInput.addEventListener('input', (e) => {
         renderMovementsTable(e.target.value);
@@ -206,6 +217,21 @@ const setupEventListeners = () => {
             dom.filePdfInput.click();
         });
         dom.filePdfInput.addEventListener('change', handlePdfImport);
+    }
+    
+    // Limpiar Todo
+    if (dom.btnClearAll) {
+        dom.btnClearAll.addEventListener('click', handleClearAll);
+    }
+    
+    // Checkbox Maestro (Check All)
+    if (dom.checkAllMovements) {
+        dom.checkAllMovements.addEventListener('change', handleCheckAll);
+    }
+    
+    // Borrar Seleccionados
+    if (dom.btnDeleteSelected) {
+        dom.btnDeleteSelected.addEventListener('click', handleDeleteSelected);
     }
     
     // Cerrar Modal
@@ -635,7 +661,12 @@ async function handleFormSubmit(e) {
             manual: true
         };
         
-        saveNewSubscription(newSubscription);
+        if (state.editingId) {
+            newSubscription.id = state.editingId;
+            updateSubscription(newSubscription);
+        } else {
+            saveNewSubscription(newSubscription);
+        }
         resetForm();
         return;
     }
@@ -671,7 +702,12 @@ async function handleFormSubmit(e) {
             manual: false
         };
         
-        saveNewSubscription(newSubscription);
+        if (state.editingId) {
+            newSubscription.id = state.editingId;
+            updateSubscription(newSubscription);
+        } else {
+            saveNewSubscription(newSubscription);
+        }
         resetForm();
         
     } catch (err) {
@@ -726,6 +762,69 @@ const resetForm = () => {
     const month = String(localToday.getMonth() + 1).padStart(2, '0');
     const day = String(localToday.getDate()).padStart(2, '0');
     dom.inputDate.value = `${year}-${month}-${day}`;
+};
+
+// CARGAR MOVIMIENTO EN FORMULARIO (EDICIÓN)
+const loadMovementIntoForm = (id) => {
+    const sub = state.subscriptions.find(s => s.id === id);
+    if (!sub) return;
+    
+    // Cargar datos en el form
+    state.editingId = sub.id;
+    
+    // Tipo de operación
+    const radioSuscripcion = document.querySelector('input[name="operation-type"][value="Suscripción"]');
+    const radioRescate = document.querySelector('input[name="operation-type"][value="Rescate"]');
+    if (sub.type === 'Rescate') {
+        if(radioRescate) radioRescate.checked = true;
+    } else {
+        if(radioSuscripcion) radioSuscripcion.checked = true;
+    }
+    
+    // Fecha
+    dom.inputDate.value = sub.date;
+    
+    // Importe
+    dom.inputAmount.value = sub.amount;
+    
+    // Cuotapartes (siempre manual al editar)
+    dom.checkManualCuotapartes.checked = true;
+    dom.cuotapartesGroup.classList.remove('hidden');
+    dom.inputCuotapartes.value = sub.cuotapartes;
+    
+    // Cambios visuales
+    const formCard = dom.subscriptionForm.closest('.form-card');
+    formCard.classList.add('editing');
+    formCard.querySelector('.card-title').innerHTML = '<i class="fa-solid fa-pen-to-square"></i> Editar Movimiento';
+    dom.textSubmitForm.innerText = 'Guardar Cambios';
+    dom.btnCancelEdit.classList.remove('hidden');
+    
+    // Scroll hacia arriba (al form)
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+};
+
+// CANCELAR EDICIÓN
+const cancelEdit = () => {
+    state.editingId = null;
+    const formCard = dom.subscriptionForm.closest('.form-card');
+    formCard.classList.remove('editing');
+    formCard.querySelector('.card-title').innerHTML = '<i class="fa-solid fa-pen"></i> Carga Manual';
+    dom.textSubmitForm.innerText = 'Cargar Movimiento';
+    dom.btnCancelEdit.classList.add('hidden');
+    resetForm();
+};
+
+// ACTUALIZAR SUBSCRIPCIÓN EXISTENTE
+const updateSubscription = (updatedSub) => {
+    const index = state.subscriptions.findIndex(s => s.id === updatedSub.id);
+    if (index !== -1) {
+        state.subscriptions[index] = updatedSub;
+        state.subscriptions.sort((a, b) => new Date(b.date) - new Date(a.date));
+        saveLocalStorageData();
+        recalculateAndRender();
+        cancelEdit();
+        showAlert('Edición Exitosa', 'El movimiento ha sido actualizado.');
+    }
 };
 
 // GUARDAR SUBSCRIPCIÓN Y ACTUALIZAR
@@ -923,13 +1022,22 @@ const renderMovementsTable = (searchTerm = '') => {
         
         tr.className = rowClass;
         tr.innerHTML = `
+            <td style="text-align: center;">
+                <div class="table-checkbox">
+                    <input type="checkbox" class="row-checkbox" data-id="${s.id}">
+                    <label></label>
+                </div>
+            </td>
             <td><strong>${formatDateToLocale(s.date)}</strong></td>
             <td>Delta Retorno Real</td>
             <td><span class="status-dot ${dotClass}"></span> ${typeLabel} ${s.manual ? '<small style="color:var(--text-muted)">(Manual)</small>' : ''}</td>
             <td class="text-right font-weight-bold" style="font-weight: 600;">${amountSign}${formatARS(s.amount)}</td>
             <td class="text-right text-muted">${formatCotizacion(s.cotizacion)}</td>
             <td class="text-right">${amountSign}${formatCuotapartes(s.cuotapartes)}</td>
-            <td class="text-center">
+            <td class="text-center" style="display: flex; justify-content: center; gap: 4px;">
+                <button class="btn-primary-icon btn-edit-row" data-id="${s.id}" title="Editar movimiento">
+                    <i class="fa-solid fa-pen"></i>
+                </button>
                 <button class="btn-danger-icon btn-delete-row" data-id="${s.id}" title="Eliminar movimiento">
                     <i class="fa-regular fa-trash-can"></i>
                 </button>
@@ -937,6 +1045,28 @@ const renderMovementsTable = (searchTerm = '') => {
         `;
         
         dom.tableBody.appendChild(tr);
+    });
+    
+    // Restablecer Master Checkbox
+    if (dom.checkAllMovements) {
+        dom.checkAllMovements.checked = false;
+    }
+    updateDeleteSelectedButton();
+    
+    // Agregar event listeners a los checkboxes de las filas
+    document.querySelectorAll('.row-checkbox').forEach(chk => {
+        chk.addEventListener('change', () => {
+            updateMasterCheckbox();
+            updateDeleteSelectedButton();
+        });
+    });
+    
+    // Agregar event listeners a los botones de editar fila
+    document.querySelectorAll('.btn-edit-row').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const id = e.currentTarget.getAttribute('data-id');
+            loadMovementIntoForm(id);
+        });
     });
     
     // Agregar event listeners a los botones de borrar fila
@@ -1232,6 +1362,69 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
             }
         }
     });
+};
+
+// LIMPIAR TODO
+const handleClearAll = () => {
+    if (state.subscriptions.length === 0) return;
+    if (confirm('¿Estás seguro de que querés borrar todos los movimientos? Esta acción no se puede deshacer.')) {
+        state.subscriptions = [];
+        saveLocalStorageData();
+        recalculateAndRender();
+        showAlert('Limpieza Completa', 'Todos los movimientos han sido eliminados.');
+    }
+};
+
+// CHECK ALL (MAESTRO)
+const handleCheckAll = (e) => {
+    const isChecked = e.target.checked;
+    const checkboxes = document.querySelectorAll('.row-checkbox');
+    checkboxes.forEach(chk => chk.checked = isChecked);
+    updateDeleteSelectedButton();
+};
+
+// ACTUALIZAR MASTER CHECKBOX STATE
+const updateMasterCheckbox = () => {
+    const checkboxes = document.querySelectorAll('.row-checkbox');
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+    if (!dom.checkAllMovements) return;
+    
+    if (checkboxes.length > 0 && checkboxes.length === checkedBoxes.length) {
+        dom.checkAllMovements.checked = true;
+        dom.checkAllMovements.indeterminate = false;
+    } else if (checkedBoxes.length > 0) {
+        dom.checkAllMovements.checked = false;
+        dom.checkAllMovements.indeterminate = true;
+    } else {
+        dom.checkAllMovements.checked = false;
+        dom.checkAllMovements.indeterminate = false;
+    }
+};
+
+// MOSTRAR/OCULTAR BOTÓN BORRAR SELECCIONADOS
+const updateDeleteSelectedButton = () => {
+    if (!dom.btnDeleteSelected) return;
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+    if (checkedBoxes.length > 0) {
+        dom.btnDeleteSelected.classList.remove('hidden');
+        dom.btnDeleteSelected.innerHTML = `<i class="fa-solid fa-trash-can"></i> Borrar ${checkedBoxes.length}`;
+    } else {
+        dom.btnDeleteSelected.classList.add('hidden');
+    }
+};
+
+// BORRAR SELECCIONADOS
+const handleDeleteSelected = () => {
+    const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+    if (checkedBoxes.length === 0) return;
+    
+    if (confirm(`¿Estás seguro de que querés borrar ${checkedBoxes.length} movimientos?`)) {
+        const idsToDelete = Array.from(checkedBoxes).map(chk => chk.getAttribute('data-id'));
+        state.subscriptions = state.subscriptions.filter(s => !idsToDelete.includes(s.id));
+        saveLocalStorageData();
+        recalculateAndRender();
+        showAlert('Borrado Exitoso', `Se eliminaron ${idsToDelete.length} movimientos.`);
+    }
 };
 
 // EXPORTAR DATOS JSON
