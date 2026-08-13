@@ -27,7 +27,8 @@ let state = {
         mercadopago: true,
         naranjax: true,
         dolar: true
-    }
+    },
+    deltaHistory: []             // Historial de cotizaciones de Delta
 };
 
 // SELECTORES DOM
@@ -60,6 +61,9 @@ const dom = {
     metricGananciaIcon: document.getElementById('metric-ganancia-icon'),
     valGananciaNeta: document.getElementById('val-ganancia-neta'),
     valGananciaPorcentaje: document.getElementById('val-ganancia-porcentaje'),
+    
+    valGananciaDiaria: document.getElementById('val-ganancia-diaria'),
+    valGananciaMensual: document.getElementById('val-ganancia-mensual'),
     
     chartPlaceholder: document.getElementById('chart-placeholder-msg'),
     searchInput: document.getElementById('search-input'),
@@ -411,8 +415,21 @@ const fetchHistoricalRates = async () => {
             // Mantiene el valor por defecto (0.18)
         });
 
+    // Promesa 4: Histórico de Delta Retorno Real
+    const deltaHistoryPromise = fetch('https://api.argentinadatos.com/v1/finanzas/fci/fondos/delta-retorno-real-clase-a/historico', { cache: 'no-cache' })
+        .then(async res => {
+            if (!res.ok) throw new Error('Error en histórico Delta');
+            const data = await res.json();
+            state.deltaHistory = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            console.log(`Histórico de Delta cargado: ${state.deltaHistory.length} registros`);
+        })
+        .catch(err => {
+            console.error('Error cargando histórico de Delta:', err);
+            state.deltaHistory = [];
+        });
+
     // Esperar a que se resuelvan todas las promesas
-    await Promise.allSettled([pfPromise, dolarPromise, nxPromise]);
+    await Promise.allSettled([pfPromise, dolarPromise, nxPromise, deltaHistoryPromise]);
     
     setApiStatus('success', 'API Conectada');
     
@@ -867,6 +884,70 @@ const loadLocalStorageData = () => {
 };
 
 // RECALCULAR MÉTRICAS Y VOLVER A RENDERIZAR
+// OBTENER COTIZACIÓN DEL DÍA ANTERIOR DESDE EL HISTORIAL
+const getCotizacionAyer = (fechaHoy) => {
+    if (!state.deltaHistory || state.deltaHistory.length === 0) return null;
+    let lastCotizacion = null;
+    for (const record of state.deltaHistory) {
+        if (record.fecha < fechaHoy) {
+            lastCotizacion = record.valorCuotaparte / 1000;
+        } else {
+            break;
+        }
+    }
+    return lastCotizacion;
+};
+
+// OBTENER COTIZACIÓN DEL ÚLTIMO DÍA DEL MES ANTERIOR
+const getCotizacionMesAnterior = (fechaHoy) => {
+    if (!state.deltaHistory || state.deltaHistory.length === 0) return null;
+    const primerDiaEsteMes = fechaHoy.substring(0, 7) + '-01';
+    let lastCotizacion = null;
+    for (const record of state.deltaHistory) {
+        if (record.fecha < primerDiaEsteMes) {
+            lastCotizacion = record.valorCuotaparte / 1000;
+        } else {
+            break;
+        }
+    }
+    return lastCotizacion;
+};
+
+// CALCULAR GANANCIA DIARIA PURA
+const calcularGananciaDiariaPura = (subscriptions, cotizacionHoy, cotizacionAyer, fechaHoy) => {
+    if (!cotizacionAyer || !cotizacionHoy) return null;
+    
+    const movimientosHoy = subscriptions.filter(s => s.date === fechaHoy);
+    const movimientosAnteriores = subscriptions.filter(s => s.date < fechaHoy);
+    
+    const flujoNetoHoy = movimientosHoy.reduce((sum, s) => sum + (s.type === 'Rescate' ? -s.amount : s.amount), 0);
+    const cuotapartesAyer = movimientosAnteriores.reduce((sum, s) => sum + (s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes), 0);
+    const cuotapartesHoy = cuotapartesAyer + movimientosHoy.reduce((sum, s) => sum + (s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes), 0);
+    
+    const valorInicial = cuotapartesAyer * cotizacionAyer;
+    const valorFinal = cuotapartesHoy * cotizacionHoy;
+    
+    return valorFinal - valorInicial - flujoNetoHoy;
+};
+
+// CALCULAR GANANCIA MENSUAL PURA
+const calcularGananciaMensualPura = (subscriptions, cotizacionHoy, cotizacionFinMesAnterior, mesActualStr) => {
+    if (!cotizacionFinMesAnterior || !cotizacionHoy) return null;
+    
+    const mesInicio = mesActualStr + '-01';
+    const movimientosEsteMes = subscriptions.filter(s => s.date >= mesInicio && s.date.startsWith(mesActualStr));
+    const movimientosAnteriores = subscriptions.filter(s => s.date < mesInicio);
+    
+    const flujoNetoMes = movimientosEsteMes.reduce((sum, s) => sum + (s.type === 'Rescate' ? -s.amount : s.amount), 0);
+    const cuotapartesMesAnterior = movimientosAnteriores.reduce((sum, s) => sum + (s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes), 0);
+    const cuotapartesActuales = cuotapartesMesAnterior + movimientosEsteMes.reduce((sum, s) => sum + (s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes), 0);
+    
+    const valorInicial = cuotapartesMesAnterior * cotizacionFinMesAnterior;
+    const valorFinal = cuotapartesActuales * cotizacionHoy;
+    
+    return valorFinal - valorInicial - flujoNetoMes;
+};
+
 const recalculateAndRender = () => {
     // 1. Cálculos de métricas totales con manejo de Rescates
     let capitalTotal = 0;
@@ -912,6 +993,42 @@ const recalculateAndRender = () => {
         dom.metricGananciaBox.classList.add('border-left-red');
         dom.metricGananciaIcon.classList.add('bg-soft-red');
         dom.metricGananciaIcon.innerHTML = '<i class="fa-solid fa-arrow-trend-down"></i>';
+    }
+    
+    // 2.5 Ganancias Puras
+    const fechaHoy = state.currentFechaCierre || new Date().toISOString().split('T')[0];
+    const mesActualStr = fechaHoy.substring(0, 7);
+    const cotizacionAyer = getCotizacionAyer(fechaHoy);
+    const cotizacionMesAnterior = getCotizacionMesAnterior(fechaHoy);
+    
+    const gananciaDiariaPura = calcularGananciaDiariaPura(state.subscriptions, state.currentCotizacion, cotizacionAyer, fechaHoy);
+    const gananciaMensualPura = calcularGananciaMensualPura(state.subscriptions, state.currentCotizacion, cotizacionMesAnterior, mesActualStr);
+    
+    // Actualizar DOM
+    if (gananciaDiariaPura !== null) {
+        dom.valGananciaDiaria.innerText = formatARS(gananciaDiariaPura);
+        const cardD = dom.valGananciaDiaria.closest('.metric-card');
+        cardD.className = 'card glass-card metric-card';
+        if (gananciaDiariaPura >= 0) {
+            cardD.classList.add('border-left-blue');
+        } else {
+            cardD.classList.add('border-left-red');
+        }
+    } else {
+        dom.valGananciaDiaria.innerText = '---';
+    }
+    
+    if (gananciaMensualPura !== null) {
+        dom.valGananciaMensual.innerText = formatARS(gananciaMensualPura);
+        const cardM = dom.valGananciaMensual.closest('.metric-card');
+        cardM.className = 'card glass-card metric-card';
+        if (gananciaMensualPura >= 0) {
+            cardM.classList.add('border-left-purple');
+        } else {
+            cardM.classList.add('border-left-red');
+        }
+    } else {
+        dom.valGananciaMensual.innerText = '---';
     }
     
     // 3. Calcular e imprimir comparativa de inversiones si hay datos
