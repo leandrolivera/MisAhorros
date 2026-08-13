@@ -20,6 +20,10 @@
     <!-- Chart.js para el Gráfico -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
+    <!-- PDF.js para procesar comprobantes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
+    
     <!-- CSS Propio -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -68,10 +72,42 @@
                     </div>
                 </div>
 
+                <!-- Importar PDF -->
+                <div class="card glass-card form-card" style="margin-bottom: 24px;">
+                    <h2 class="card-title"><i class="fa-regular fa-file-pdf"></i> Carga Automática (PDF)</h2>
+                    <p class="text-muted" style="margin-bottom: 15px; font-size: 0.9em; line-height: 1.4;">Subí tus comprobantes de liquidación del Banco Santa Fe para cargar tus movimientos de forma automática.</p>
+                    <button class="btn btn-secondary" id="btn-import-pdf" style="width: 100%;">
+                        <i class="fa-solid fa-file-arrow-up"></i> Seleccionar PDFs
+                    </button>
+                    <input type="file" id="file-pdf-input" class="hidden" accept=".pdf" multiple>
+                    
+                    <div class="form-loader hidden" id="pdf-loader" style="margin-top: 15px;">
+                        <div class="spinner"></div>
+                        <p id="pdf-loader-text">Procesando comprobantes...</p>
+                    </div>
+                </div>
+
                 <!-- Formulario de Carga -->
                 <div class="card glass-card form-card">
-                    <h2 class="card-title"><i class="fa-solid fa-plus"></i> Nueva Suscripción</h2>
+                    <h2 class="card-title"><i class="fa-solid fa-pen"></i> Carga Manual</h2>
                     <form id="subscription-form" autocomplete="off">
+                        <!-- Tipo de Operación -->
+                        <div class="form-group radio-group-container">
+                            <label>Tipo de Operación</label>
+                            <div class="radio-options">
+                                <label class="radio-label">
+                                    <input type="radio" name="operation-type" value="Suscripción" checked>
+                                    <span class="radio-custom"></span>
+                                    Suscripción
+                                </label>
+                                <label class="radio-label">
+                                    <input type="radio" name="operation-type" value="Rescate">
+                                    <span class="radio-custom"></span>
+                                    Rescate
+                                </label>
+                            </div>
+                        </div>
+
                         <!-- Fecha -->
                         <div class="form-group">
                             <label for="input-date">Fecha de Concertación</label>

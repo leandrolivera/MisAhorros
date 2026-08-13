@@ -850,6 +850,65 @@ body {
     font-size: 0.85rem;
 }
 
+/* RADIO BUTTONS */
+.radio-group-container {
+    margin-bottom: 20px;
+}
+.radio-options {
+    display: flex;
+    gap: 16px;
+    margin-top: 4px;
+}
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-primary) !important;
+    cursor: pointer;
+    user-select: none;
+}
+.radio-label input[type="radio"] {
+    display: none;
+}
+.radio-custom {
+    width: 18px;
+    height: 18px;
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50%;
+    display: inline-block;
+    position: relative;
+    transition: var(--transition);
+}
+.radio-label input[type="radio"]:checked + .radio-custom {
+    border-color: var(--color-primary);
+}
+.radio-label input[type="radio"]:checked + .radio-custom::after {
+    content: "";
+    width: 10px;
+    height: 10px;
+    background: var(--color-primary);
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* TABLE ROW STYLES */
+.row-rescate {
+    background: rgba(239, 68, 68, 0.05) !important;
+}
+.row-rescate td {
+    color: var(--color-red);
+}
+.row-rescate:hover {
+    background: rgba(239, 68, 68, 0.1) !important;
+}
+.row-suscripcion {
+    /* default styles */
+}
+
 /* UTILITY CLASSES */
 .hidden { display: none !important; }
 

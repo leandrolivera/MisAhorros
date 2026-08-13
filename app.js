@@ -67,6 +67,11 @@ const dom = {
     btnImportData: document.getElementById('btn-import-data'),
     fileImportInput: document.getElementById('file-import-input'),
     
+    btnImportPdf: document.getElementById('btn-import-pdf'),
+    filePdfInput: document.getElementById('file-pdf-input'),
+    pdfLoader: document.getElementById('pdf-loader'),
+    pdfLoaderText: document.getElementById('pdf-loader-text'),
+    
     modalContainer: document.getElementById('modal-container'),
     modalTitle: document.getElementById('modal-title'),
     modalBodyContent: document.getElementById('modal-body-content'),
@@ -194,6 +199,14 @@ const setupEventListeners = () => {
     });
     
     dom.fileImportInput.addEventListener('change', importDataFromJSON);
+    
+    // Importar Comprobantes PDF
+    if (dom.btnImportPdf && dom.filePdfInput) {
+        dom.btnImportPdf.addEventListener('click', () => {
+            dom.filePdfInput.click();
+        });
+        dom.filePdfInput.addEventListener('change', handlePdfImport);
+    }
     
     // Cerrar Modal
     dom.btnModalClose.addEventListener('click', () => {
@@ -503,7 +516,7 @@ const simulateNaranjaXSeries = (subscriptions, endDateStr) => {
         if (!subsByDate[s.date]) {
             subsByDate[s.date] = 0;
         }
-        subsByDate[s.date] += s.amount;
+        subsByDate[s.date] += (s.type === 'Rescate' ? -s.amount : s.amount);
     });
     
     const valuations = {};
@@ -599,6 +612,9 @@ async function handleFormSubmit(e) {
         return;
     }
     
+    const operationTypeInput = document.querySelector('input[name="operation-type"]:checked');
+    const operationType = operationTypeInput ? operationTypeInput.value : 'Suscripción';
+    
     // Si carga manual está activo
     if (isManual) {
         const cuotapartesVal = parseFloat(dom.inputCuotapartes.value);
@@ -615,6 +631,7 @@ async function handleFormSubmit(e) {
             amount: amountVal,
             cuotapartes: cuotapartesVal,
             cotizacion: cotizacionCalculada,
+            type: operationType,
             manual: true
         };
         
@@ -650,6 +667,7 @@ async function handleFormSubmit(e) {
             amount: amountVal,
             cuotapartes: calculatedCuotapartes,
             cotizacion: historicalCotizacion,
+            type: operationType,
             manual: false
         };
         
@@ -750,9 +768,24 @@ const loadLocalStorageData = () => {
 
 // RECALCULAR MÉTRICAS Y VOLVER A RENDERIZAR
 const recalculateAndRender = () => {
-    // 1. Cálculos de métricas totales
-    const capitalTotal = state.subscriptions.reduce((sum, s) => sum + s.amount, 0);
-    const cuotapartesTotales = state.subscriptions.reduce((sum, s) => sum + s.cuotapartes, 0);
+    // 1. Cálculos de métricas totales con manejo de Rescates
+    let capitalTotal = 0;
+    let cuotapartesTotales = 0;
+    
+    const chronSub = [...state.subscriptions].sort((a, b) => new Date(a.date) - new Date(b.date));
+    
+    chronSub.forEach(s => {
+        if (s.type === 'Rescate') {
+            capitalTotal -= s.amount;
+            if (capitalTotal < 0) capitalTotal = 0;
+            cuotapartesTotales -= s.cuotapartes;
+            if (cuotapartesTotales < 0) cuotapartesTotales = 0;
+        } else {
+            capitalTotal += s.amount;
+            cuotapartesTotales += s.cuotapartes;
+        }
+    });
+    
     const tenenciaValorizada = cuotapartesTotales * state.currentCotizacion;
     const gananciaNeta = tenenciaValorizada - capitalTotal;
     const gananciaPorcentaje = capitalTotal > 0 ? (gananciaNeta / capitalTotal) * 100 : 0;
@@ -793,9 +826,10 @@ const recalculateAndRender = () => {
         const endSimulationDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
         
         state.subscriptions.forEach(s => {
-            totalPlazoFijoVal += simulatePlazoFijo(s.amount, s.date, endSimulationDate);
-            totalMercadoPagoVal += simulateMercadoPago(s.amount, s.date, endSimulationDate);
-            totalDolarVal += simulateDolarBlue(s.amount, s.date, endSimulationDate);
+            const flowAmount = s.type === 'Rescate' ? -s.amount : s.amount;
+            totalPlazoFijoVal += simulatePlazoFijo(flowAmount, s.date, endSimulationDate);
+            totalMercadoPagoVal += simulateMercadoPago(flowAmount, s.date, endSimulationDate);
+            totalDolarVal += simulateDolarBlue(flowAmount, s.date, endSimulationDate);
         });
         
         // Naranja X se simula como portafolio unificado
@@ -882,13 +916,19 @@ const renderMovementsTable = (searchTerm = '') => {
     filteredMovements.forEach(s => {
         const tr = document.createElement('tr');
         
+        const typeLabel = s.type === 'Rescate' ? 'Rescate' : 'Suscripción';
+        const rowClass = s.type === 'Rescate' ? 'row-rescate' : 'row-suscripcion';
+        const dotClass = s.type === 'Rescate' ? 'error' : 'success';
+        const amountSign = s.type === 'Rescate' ? '-' : '';
+        
+        tr.className = rowClass;
         tr.innerHTML = `
             <td><strong>${formatDateToLocale(s.date)}</strong></td>
             <td>Delta Retorno Real</td>
-            <td><span class="status-dot success"></span> Suscripción ${s.manual ? '<small style="color:var(--text-muted)">(Manual)</small>' : ''}</td>
-            <td class="text-right font-weight-bold" style="font-weight: 600;">${formatARS(s.amount)}</td>
+            <td><span class="status-dot ${dotClass}"></span> ${typeLabel} ${s.manual ? '<small style="color:var(--text-muted)">(Manual)</small>' : ''}</td>
+            <td class="text-right font-weight-bold" style="font-weight: 600;">${amountSign}${formatARS(s.amount)}</td>
             <td class="text-right text-muted">${formatCotizacion(s.cotizacion)}</td>
-            <td class="text-right">${formatCuotapartes(s.cuotapartes)}</td>
+            <td class="text-right">${amountSign}${formatCuotapartes(s.cuotapartes)}</td>
             <td class="text-center">
                 <button class="btn-danger-icon btn-delete-row" data-id="${s.id}" title="Eliminar movimiento">
                     <i class="fa-regular fa-trash-can"></i>
@@ -938,18 +978,24 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     let accumCuotapartes = 0;
     
     chronSub.forEach(s => {
-        accumCapital += s.amount;
-        accumCuotapartes += s.cuotapartes;
+        const flowAmount = s.type === 'Rescate' ? -s.amount : s.amount;
+        const flowCuotas = s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes;
+        
+        accumCapital += flowAmount;
+        if (accumCapital < 0) accumCapital = 0;
+        
+        accumCuotapartes += flowCuotas;
+        if (accumCuotapartes < 0) accumCuotapartes = 0;
         
         // La tenencia valorizada histórica en esta fecha se calcula en base a la cotización registrada ese día
         const valuationOnDate = accumCuotapartes * s.cotizacion;
         
         // Simular Plazo Fijo, Mercado Pago y Dolar Blue acumulados hasta esta fecha s.date
         const subsUpToThisDate = chronSub.filter(sub => new Date(sub.date) <= new Date(s.date));
-        const pfValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.amount, sub.date, s.date), 0) : 0;
-        const mpValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateMercadoPago(sub.amount, sub.date, s.date), 0) : 0;
+        const pfValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
+        const mpValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateMercadoPago(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
         const nxValuationOnDate = nxValuationsMap[s.date] || 0;
-        const dolarValuationOnDate = state.dolarFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateDolarBlue(sub.amount, sub.date, s.date), 0) : 0;
+        const dolarValuationOnDate = state.dolarFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateDolarBlue(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
         
         // Si ya hay un data point en la misma fecha (ej: múltiples cargas el mismo día), lo actualizamos
         const existingPoint = dataPoints.find(dp => dp.date === s.date);
@@ -980,10 +1026,10 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     
     // Añadimos solo si la fecha del cierre de la API es posterior a la última suscripción
     if (latestDateInSubs && new Date(apiCloseDate) > new Date(latestDateInSubs)) {
-        const pfValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.amount, sub.date, apiCloseDate), 0) : 0;
-        const mpValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulateMercadoPago(sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const pfValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const mpValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulateMercadoPago(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
         const nxValToday = nxValuationsMap[apiCloseDate] || 0;
-        const dolarValToday = state.dolarFetched ? chronSub.reduce((sum, sub) => sum + simulateDolarBlue(sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const dolarValToday = state.dolarFetched ? chronSub.reduce((sum, sub) => sum + simulateDolarBlue(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
         
         dataPoints.push({
             date: apiCloseDate,
@@ -1246,8 +1292,131 @@ function importDataFromJSON(e) {
         } catch (err) {
             showAlert('Archivo Inválido', `No se pudo importar la copia de seguridad: ${err.message}`);
         }
-        // Limpiar el input file
+            // Limpiar el input file
         dom.fileImportInput.value = '';
     };
     reader.readAsText(file);
+}
+
+// PROCESAMIENTO DE PDFs
+async function handlePdfImport(e) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    
+    dom.pdfLoader.classList.remove('hidden');
+    
+    let successCount = 0;
+    
+    try {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            
+            // Leer el archivo como ArrayBuffer
+            const arrayBuffer = await file.arrayBuffer();
+            
+            // Cargar con PDF.js
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            
+            let fullText = '';
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                const page = await pdf.getPage(pageNum);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + '\n';
+            }
+            
+            const parsed = parseReceipt(fullText);
+            if (parsed.date && parsed.amount && parsed.cuotapartes && parsed.cotizacion) {
+                const newSubscription = {
+                    id: 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                    date: parsed.date,
+                    amount: parsed.amount,
+                    cuotapartes: parsed.cuotapartes,
+                    cotizacion: parsed.cotizacion,
+                    type: parsed.type,
+                    manual: true
+                };
+                
+                state.subscriptions.push(newSubscription);
+                successCount++;
+            } else {
+                console.warn(`No se pudieron extraer todos los datos del PDF: ${file.name}`);
+            }
+        }
+        
+        if (successCount > 0) {
+            state.subscriptions.sort((a, b) => new Date(b.date) - new Date(a.date));
+            saveLocalStorageData();
+            recalculateAndRender();
+            showAlert('Importación PDF Exitosa', `Se cargaron ${successCount} comprobantes correctamente.`);
+        } else {
+            showAlert('Importación Fallida', 'No se pudieron extraer datos válidos de los comprobantes. Verificá que sean liquidaciones del Banco Santa Fe válidas.');
+        }
+    } catch (err) {
+        console.error(err);
+        showAlert('Error al procesar', 'Ocurrió un error al leer el archivo PDF.');
+    } finally {
+        dom.pdfLoader.classList.add('hidden');
+        dom.filePdfInput.value = ''; // Reset
+    }
+}
+
+function parseReceipt(text) {
+    let result = {
+        type: 'Suscripción', // default
+        date: null,
+        amount: null,
+        cuotapartes: null,
+        cotizacion: null
+    };
+
+    // Tipo de operación
+    if (/LIQUIDACION DE RESCATE/i.test(text)) {
+        result.type = 'Rescate';
+    } else if (/LIQUIDACION DE SUSCRIPCION/i.test(text)) {
+        result.type = 'Suscripción';
+    }
+
+    // Monto
+    const amountMatch = text.match(/(?:MONTO DEPOSITADO|IMPORTE NETO|IMPORTE A COBRAR)\s*\$\s*([\d\.,]+)/i);
+    if (amountMatch) {
+        let rawAmount = amountMatch[1].replace(/\./g, '').replace(',', '.');
+        result.amount = parseFloat(rawAmount);
+    }
+
+    // Cuotapartes
+    const cuotasMatch = text.match(/CUOTAPARTES\s+(?:SUSCRIPTAS|RESCATADAS)?\s*:\s*([\d\.,]+)/i);
+    if (cuotasMatch) {
+        let rawCuotas = cuotasMatch[1].replace(/\./g, '').replace(',', '.');
+        result.cuotapartes = parseFloat(rawCuotas);
+    }
+    
+    // Cotización
+    const cotMatch = text.match(/VALOR CUOTAPARTE\s*:\s*([\d\.,]+)/i);
+    if (cotMatch) {
+        let rawCot = cotMatch[1].replace(/\./g, '').replace(',', '.');
+        result.cotizacion = parseFloat(rawCot);
+    }
+
+    // Fecha
+    const dateMatch = text.match(/(\d{1,2})\s+de\s+([a-zA-Z]+)\s+de\s+(\d{4})/i);
+    if (dateMatch) {
+        const day = dateMatch[1].padStart(2, '0');
+        const months = {
+            'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04', 'mayo': '05', 'junio': '06',
+            'julio': '07', 'agosto': '08', 'septiembre': '09', 'setiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+        };
+        const month = months[dateMatch[2].toLowerCase()];
+        const year = dateMatch[3];
+        if (month) {
+            result.date = `${year}-${month}-${day}`;
+        }
+    }
+
+    // Fallback: si no encontró cotización, calcularla (Valor Cuotaparte)
+    if (!result.cotizacion && result.amount && result.cuotapartes) {
+        result.cotizacion = result.amount / result.cuotapartes;
+    }
+
+    return result;
 }
