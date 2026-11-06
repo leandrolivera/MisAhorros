@@ -422,7 +422,11 @@ const fetchHistoricalRates = async () => {
         .then(async res => {
             if (!res.ok) throw new Error('Error en histórico Delta');
             const data = await res.json();
-            state.deltaHistory = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            // La API devuelve { historico: [...] } (no un arreglo directo)
+            const records = Array.isArray(data) ? data : (data.historico || []);
+            state.deltaHistory = records
+                .filter(r => r.fecha && typeof r.valorCuotaparte === 'number')
+                .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
             console.log(`Histórico de Delta cargado: ${state.deltaHistory.length} registros`);
         })
         .catch(err => {
@@ -508,6 +512,107 @@ const simulatePlazoFijo = (amount, startDateStr, endDateStr) => {
     }
     
     return capital;
+};
+
+// SIMULACIÓN REALISTA: "RESCATE A FIN DE MES → PLAZO FIJO 30 DÍAS"
+// Estrategia que se puede hacer en la práctica con depósitos diarios:
+//  1. Durante el mes cada movimiento se suscribe/rescata en Delta (igual que hoy).
+//  2. El último día hábil del mes se rescata todo lo que haya en Delta (a la cotización de ese día).
+//  3. El día hábil siguiente se constituye un plazo fijo a 30 días con la TNA vigente.
+//  4. Al vencer, capital + intereses se renuevan (el día hábil siguiente si vence en feriado/fin de semana).
+// Un plazo fijo vigente se valúa con el interés devengado a la fecha (aunque no se pueda retirar antes).
+// Devuelve { 'YYYY-MM-DD': valor total } para cada día, o null si falta el histórico de Delta.
+const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) => {
+    if (!subscriptions || subscriptions.length === 0) return {};
+    if (!state.deltaHistory || state.deltaHistory.length === 0) return null;
+
+    // Días hábiles = días con cotización publicada de Delta
+    const businessDays = new Set();
+    const lastBizOfMonth = {};
+    state.deltaHistory.forEach(r => {
+        const d = r.fecha.substring(0, 10);
+        businessDays.add(d);
+        lastBizOfMonth[d.substring(0, 7)] = d; // está ordenado: queda el último del mes
+    });
+    // Un mes solo "cierra" si ya hay cotizaciones de un mes posterior
+    const lastHistoryMonth = state.deltaHistory[state.deltaHistory.length - 1].fecha.substring(0, 7);
+    const monthEnds = new Set(
+        Object.entries(lastBizOfMonth).filter(([m]) => m < lastHistoryMonth).map(([, d]) => d)
+    );
+
+    const deltaPrice = (dateStr) => {
+        const idx = findLastIndexOnOrBefore(state.deltaHistory, dateStr);
+        return idx >= 0 ? state.deltaHistory[idx].valorCuotaparte / 1000 : null;
+    };
+
+    const cuotasByDate = {};
+    let firstDate = null;
+    subscriptions.forEach(s => {
+        cuotasByDate[s.date] = (cuotasByDate[s.date] || 0) + (s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes);
+        if (!firstDate || s.date < firstDate) firstDate = s.date;
+    });
+
+    const valuations = {};
+    let cuotapartes = 0;  // Tenencia en Delta durante el mes
+    let pendingCash = 0;  // Plata rescatada/vencida esperando el próximo día hábil
+    let deposits = [];    // Plazos fijos vigentes: { capital, startDate, startTime, maturityTime, tna }
+    let lastPrice = null;
+
+    const current = new Date(firstDate);
+    const end = new Date(endDateStr);
+    const DAY_MS = 1000 * 60 * 60 * 24;
+
+    while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        const now = current.getTime();
+        const isBusinessDay = businessDays.has(dateStr);
+        const price = deltaPrice(dateStr) || lastPrice;
+        if (price) lastPrice = price;
+
+        // 1. Vencimientos de plazos fijos
+        const stillRunning = [];
+        deposits.forEach(pf => {
+            if (now >= pf.maturityTime) {
+                pendingCash += pf.capital * (1 + (pf.tna / 100) * (30 / 365));
+            } else {
+                stillRunning.push(pf);
+            }
+        });
+        deposits = stillRunning;
+
+        // 2. Movimientos del día en Delta
+        if (cuotasByDate[dateStr]) {
+            cuotapartes += cuotasByDate[dateStr];
+            if (cuotapartes < 0) {
+                // Rescate mayor a lo que hay en Delta: se cubre con plata en espera (simplificación)
+                pendingCash = Math.max(0, pendingCash + cuotapartes * (price || 0));
+                cuotapartes = 0;
+            }
+        }
+
+        // 3. En día hábil, la plata en espera se coloca en un plazo fijo nuevo
+        if (isBusinessDay && pendingCash > 0) {
+            deposits.push({ capital: pendingCash, startTime: now, maturityTime: now + 30 * DAY_MS, tna: getTnaForDate(dateStr) });
+            pendingCash = 0;
+        }
+
+        // 4. Último día hábil del mes: rescatar todo Delta (se acredita al día hábil siguiente)
+        if (monthEnds.has(dateStr) && cuotapartes > 0 && price) {
+            pendingCash += cuotapartes * price;
+            cuotapartes = 0;
+        }
+
+        // 5. Valuación del día
+        const pfValue = deposits.reduce((sum, pf) => {
+            const elapsedDays = Math.round((now - pf.startTime) / DAY_MS);
+            return sum + pf.capital * (1 + (pf.tna / 100) * (elapsedDays / 365));
+        }, 0);
+        valuations[dateStr] = cuotapartes * (price || 0) + pendingCash + pfValue;
+
+        current.setDate(current.getDate() + 1);
+    }
+
+    return valuations;
 };
 
 // ALGORITMO SIMULACIÓN MERCADO PAGO COMPUESTO DIARIO
@@ -1080,9 +1185,16 @@ const recalculateAndRender = () => {
         
         const endSimulationDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
         
+        // Plazo Fijo: estrategia realista (rescate mensual → PF 30 días).
+        // Si todavía no cargó el histórico de Delta, se usa la simulación simple por movimiento.
+        const pfMensualMap = simulatePlazoFijoMensualSeries(state.subscriptions, endSimulationDate);
+        if (pfMensualMap) {
+            totalPlazoFijoVal = pfMensualMap[endSimulationDate] || 0;
+        }
+        
         state.subscriptions.forEach(s => {
             const flowAmount = s.type === 'Rescate' ? -s.amount : s.amount;
-            totalPlazoFijoVal += simulatePlazoFijo(flowAmount, s.date, endSimulationDate);
+            if (!pfMensualMap) totalPlazoFijoVal += simulatePlazoFijo(flowAmount, s.date, endSimulationDate);
             totalDolarVal += simulateDolarBlue(flowAmount, s.date, endSimulationDate);
         });
         
@@ -1259,6 +1371,7 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     const apiCloseDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
     const nxValuationsMap = simulateNaranjaXSeries(chronSub, apiCloseDate);
     const mpValuationsMap = state.ratesFetched ? simulateMercadoPagoSeries(chronSub, apiCloseDate) : {};
+    const pfMensualMap = state.ratesFetched ? simulatePlazoFijoMensualSeries(chronSub, apiCloseDate) : null;
     
     // Agrupar por fechas
     const dataPoints = [];
@@ -1285,7 +1398,7 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
         
         // chronSub está ordenado: los movimientos hasta esta fecha son chronSub[0..idx]
         const subsUpToThisDate = chronSub.slice(0, idx + 1);
-        const pfValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
+        const pfValuationOnDate = pfMensualMap ? (pfMensualMap[s.date] || 0) : state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
         const mpValuationOnDate = mpValuationsMap[s.date] || 0;
         const nxValuationOnDate = nxValuationsMap[s.date] || 0;
         const dolarValuationOnDate = state.dolarFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateDolarBlue(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
@@ -1309,7 +1422,7 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     
     // Añadimos solo si la fecha del cierre de la API es posterior a la última suscripción
     if (latestDateInSubs && new Date(apiCloseDate) > new Date(latestDateInSubs)) {
-        const pfValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const pfValToday = pfMensualMap ? (pfMensualMap[apiCloseDate] || 0) : state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
         const mpValToday = mpValuationsMap[apiCloseDate] || 0;
         const nxValToday = nxValuationsMap[apiCloseDate] || 0;
         const dolarValToday = state.dolarFetched ? chronSub.reduce((sum, sub) => sum + simulateDolarBlue(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
