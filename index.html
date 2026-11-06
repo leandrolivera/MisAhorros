@@ -350,7 +350,34 @@
                         <span class="goal-stat-sub" id="goal-eta-sub">---</span>
                     </div>
                 </div>
-                <p class="goal-note">Proyección en pesos nominales, suponiendo que seguís aportando el promedio de los meses completos y que el fondo rinde su promedio mensual de esos mismos meses. No es una predicción: el rendimiento de Delta Retorno Real sigue a la inflación y varía mes a mes.</p>
+                <p class="goal-note">Proyección en pesos nominales, suponiendo que seguís aportando el promedio de los meses completos y que el fondo rinde su promedio mensual de esos mismos meses. No es una predicción: el rendimiento varía mes a mes.</p>
+
+                <div class="goal-real hidden" id="goal-real-section">
+                    <h3 class="goal-real-title"><i class="fa-solid fa-scale-balanced"></i> En términos reales (descontando inflación)</h3>
+                    <div class="goal-stats">
+                        <div class="goal-stat">
+                            <span class="goal-stat-label">Inflación promedio</span>
+                            <span class="goal-stat-value" id="goal-inflation">---</span>
+                            <span class="goal-stat-sub" id="goal-inflation-sub">por mes</span>
+                        </div>
+                        <div class="goal-stat">
+                            <span class="goal-stat-label">Rendimiento real del fondo</span>
+                            <span class="goal-stat-value" id="goal-real-return">---</span>
+                            <span class="goal-stat-sub" id="goal-real-return-sub">por mes</span>
+                        </div>
+                        <div class="goal-stat">
+                            <span class="goal-stat-label">Rendimiento real con la meta</span>
+                            <span class="goal-stat-value" id="goal-real-income">---</span>
+                            <span class="goal-stat-sub" id="goal-real-income-sub">por mes</span>
+                        </div>
+                        <div class="goal-stat goal-stat-highlight">
+                            <span class="goal-stat-label">Proyección en pesos de hoy</span>
+                            <span class="goal-stat-value" id="goal-real-eta">---</span>
+                            <span class="goal-stat-sub" id="goal-real-eta-sub">---</span>
+                        </div>
+                    </div>
+                    <p class="goal-note">Rendimiento real = lo que el fondo rindió por encima (o por debajo) de la inflación del INDEC, solo en meses con inflación ya publicada. La proyección en pesos de hoy supone que tus aportes suben al ritmo de la inflación y que la meta mantiene su poder de compra actual.</p>
+                </div>
 
                 <h2 class="card-title" style="margin-top: 28px;"><i class="fa-solid fa-calendar-days"></i> Resumen Mensual</h2>
                 <div class="table-responsive">
@@ -363,6 +390,8 @@
                                 <th class="text-right">Aporte neto</th>
                                 <th class="text-right" title="Ganancia pura del mes: variación de tu tenencia sin contar aportes ni rescates">Ganancia del mes</th>
                                 <th class="text-right" title="Variación de la cotización del fondo en el mes">Rend. fondo</th>
+                                <th class="text-right" title="Inflación mensual INDEC (s/d: todavía no publicada)">Inflación</th>
+                                <th class="text-right" title="Rendimiento del fondo descontando la inflación del mes">Rend. real</th>
                                 <th class="text-right" title="Qué parte de lo que aportaste ese mes cubrió la ganancia del fondo">Ganancia / aportes</th>
                                 <th class="text-right">Tenencia a fin de mes</th>
                             </tr>

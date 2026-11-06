@@ -1183,3 +1183,22 @@ body {
         width: 100%;
     }
 }
+
+.goal-real {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.goal-real-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.goal-stat-value.cell-positive { color: var(--color-green); }
+.goal-stat-value.cell-negative { color: var(--color-red); }

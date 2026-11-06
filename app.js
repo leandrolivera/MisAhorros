@@ -28,7 +28,8 @@ let state = {
         naranjax: true,
         dolar: true
     },
-    deltaHistory: []             // Historial de cotizaciones de Delta
+    deltaHistory: [],            // Historial de cotizaciones de Delta
+    inflation: {}                // Inflación mensual INDEC { 'YYYY-MM': % }
 };
 
 // SELECTORES DOM
@@ -82,6 +83,15 @@ const dom = {
     goalTargetIncome: document.getElementById('goal-target-income'),
     goalEta: document.getElementById('goal-eta'),
     goalEtaSub: document.getElementById('goal-eta-sub'),
+    goalRealSection: document.getElementById('goal-real-section'),
+    goalInflation: document.getElementById('goal-inflation'),
+    goalInflationSub: document.getElementById('goal-inflation-sub'),
+    goalRealReturn: document.getElementById('goal-real-return'),
+    goalRealReturnSub: document.getElementById('goal-real-return-sub'),
+    goalRealIncome: document.getElementById('goal-real-income'),
+    goalRealIncomeSub: document.getElementById('goal-real-income-sub'),
+    goalRealEta: document.getElementById('goal-real-eta'),
+    goalRealEtaSub: document.getElementById('goal-real-eta-sub'),
     
     chartPlaceholder: document.getElementById('chart-placeholder-msg'),
     searchInput: document.getElementById('search-input'),
@@ -465,8 +475,25 @@ const fetchHistoricalRates = async () => {
             state.deltaHistory = [];
         });
 
+    // Promesa 5: Inflación mensual (INDEC)
+    const inflationPromise = fetch('https://api.argentinadatos.com/v1/finanzas/indices/inflacion', { cache: 'no-cache' })
+        .then(async res => {
+            if (!res.ok) throw new Error('Error en inflación');
+            const data = await res.json();
+            const map = {};
+            (Array.isArray(data) ? data : []).forEach(r => {
+                if (r.fecha && typeof r.valor === 'number') map[r.fecha.substring(0, 7)] = r.valor;
+            });
+            state.inflation = map;
+            console.log(`Inflación mensual cargada: ${Object.keys(map).length} meses`);
+        })
+        .catch(err => {
+            console.error('Error cargando inflación:', err);
+            state.inflation = {};
+        });
+
     // Esperar a que se resuelvan todas las promesas
-    await Promise.allSettled([pfPromise, dolarPromise, nxPromise, deltaHistoryPromise]);
+    await Promise.allSettled([pfPromise, dolarPromise, nxPromise, deltaHistoryPromise, inflationPromise]);
     
     setApiStatus('success', 'API Conectada');
     
@@ -1027,6 +1054,11 @@ const saveNewSubscription = (newSub) => {
     
     saveLocalStorageData();
     recalculateAndRender();
+    
+    if (newSub.type === 'Rescate') {
+        const impact = getRescateImpactMessage(newSub.amount);
+        if (impact) showAlert('Rescate Cargado', `Se registró el rescate del ${formatDateToLocale(newSub.date)}.${impact}`);
+    }
 };
 
 // ELIMINAR SUBSCRIPCIÓN
@@ -1210,6 +1242,7 @@ const computeMonthlySummary = () => {
             neto,
             ganancia: valorFin - valorInicio - neto,
             rendFondo: prevClose.price > 0 ? (closePrice / prevClose.price - 1) * 100 : 0,
+            inflacion: getInflationForMonth(ym),
             tenencia: valorFin
         });
 
@@ -1218,15 +1251,107 @@ const computeMonthlySummary = () => {
     return rows;
 };
 
+// INFLACIÓN DEL MES (INDEC vía API), en %; null si todavía no se publicó
+const getInflationForMonth = (ym) => (state.inflation && typeof state.inflation[ym] === 'number' ? state.inflation[ym] : null);
+
+// Rendimiento real = (1 + rendimiento nominal) / (1 + inflación) - 1
+const realReturnPct = (nominalPct, inflationPct) => ((1 + nominalPct / 100) / (1 + inflationPct / 100) - 1) * 100;
+
+// Meses para llegar a la meta: valor = valor × (1 + rendimiento) + aporte (máx. 50 años)
+const monthsToGoal = (startValue, goal, monthlyContribution, monthlyReturn) => {
+    let value = startValue;
+    let months = 0;
+    while (value < goal && months < 600) {
+        value = value * (1 + monthlyReturn) + monthlyContribution;
+        months++;
+    }
+    return value >= goal ? months : null;
+};
+
+const formatDuration = (months) => {
+    const years = Math.floor(months / 12), rest = months % 12;
+    if (years === 0) return `${months} mes${months !== 1 ? 'es' : ''}`;
+    return `${years} año${years > 1 ? 's' : ''}${rest ? ` y ${rest} mes${rest > 1 ? 'es' : ''}` : ''}`;
+};
+
+const formatEtaMonth = (fromYm, months) => {
+    const [y, m] = fromYm.split('-').map(Number);
+    const idx = (m - 1) + months;
+    return `${MONTH_NAMES[idx % 12]} ${y + Math.floor(idx / 12)}`;
+};
+
+// PARÁMETROS DE LA PROYECCIÓN (promedios de los meses completos)
+const getProjectionContext = () => {
+    const rows = computeMonthlySummary();
+    if (rows.length === 0) return null;
+    const complete = rows.filter(r => !r.isCurrent);
+    const ctx = {
+        rows,
+        complete,
+        tenencia: rows[rows.length - 1].tenencia,
+        lastMonth: rows[rows.length - 1].month,
+        goal: getGoalAmount()
+    };
+    if (complete.length === 0) return ctx;
+
+    ctx.avgNeto = complete.reduce((s, r) => s + r.neto, 0) / complete.length;
+    // Promedio geométrico del rendimiento mensual del fondo
+    const growth = complete.reduce((p, r) => p * (1 + r.rendFondo / 100), 1);
+    ctx.avgReturn = Math.pow(growth, 1 / complete.length) - 1;
+
+    // Rendimiento real: solo meses con inflación publicada
+    const withInflation = complete.filter(r => r.inflacion !== null);
+    if (withInflation.length > 0) {
+        const g = withInflation.reduce((p, r) => p * (1 + r.rendFondo / 100), 1);
+        const gi = withInflation.reduce((p, r) => p * (1 + r.inflacion / 100), 1);
+        ctx.inflMonths = withInflation;
+        ctx.avgInflation = Math.pow(gi, 1 / withInflation.length) - 1;
+        ctx.avgRealReturn = Math.pow(g / gi, 1 / withInflation.length) - 1;
+        ctx.accFondo = (g - 1) * 100;
+        ctx.accInflation = (gi - 1) * 100;
+    }
+    return ctx;
+};
+
+const periodLabel = (rows) => rows.length > 1
+    ? `${formatMonthLabel(rows[0].month)} – ${formatMonthLabel(rows[rows.length - 1].month)}`
+    : formatMonthLabel(rows[0].month);
+
+// MENSAJE DE IMPACTO DE UN RESCATE EN LA META (para avisar al cargarlo)
+const getRescateImpactMessage = (rescateAmount) => {
+    const ctx = getProjectionContext();
+    if (!ctx || ctx.avgReturn === undefined || rescateAmount <= 0) return '';
+
+    const costPerMonth = rescateAmount * ctx.avgReturn;
+    let msg = `<br><br><b>Impacto del rescate (${formatARS(rescateAmount)}):</b><br>` +
+        `• Mientras esa plata esté fuera del fondo, dejás de ganar ≈ <b>${formatARS(costPerMonth)} por mes</b> ` +
+        `(al ${formatPercentage(ctx.avgReturn * 100)} mensual promedio).`;
+
+    if (ctx.tenencia < ctx.goal) {
+        const withRescate = monthsToGoal(ctx.tenencia, ctx.goal, ctx.avgNeto, ctx.avgReturn);
+        const withoutRescate = monthsToGoal(ctx.tenencia + rescateAmount, ctx.goal, ctx.avgNeto, ctx.avgReturn);
+        if (withRescate !== null && withoutRescate !== null) {
+            const delay = withRescate - withoutRescate;
+            msg += delay > 0
+                ? `<br>• Si no vuelve al fondo, la meta de ${formatARS(ctx.goal)} se atrasa ≈ <b>${formatDuration(delay)}</b> ` +
+                  `(de ${formatEtaMonth(ctx.lastMonth, withoutRescate)} a ${formatEtaMonth(ctx.lastMonth, withRescate)}).`
+                : `<br>• No cambia el mes estimado para llegar a la meta.`;
+        }
+    }
+    msg += `<br>• Si la volvés a suscribir pronto (por ejemplo, un préstamo que te devuelven), el costo es solo el rendimiento de los días que estuvo afuera.`;
+    return msg;
+};
+
 // RENDERIZAR META DE CAPITAL Y RESUMEN MENSUAL
 const renderMonthlySection = () => {
     if (!dom.monthlySection) return;
-    const rows = computeMonthlySummary();
-    if (rows.length === 0) {
+    const ctx = getProjectionContext();
+    if (!ctx) {
         dom.monthlySection.classList.add('hidden');
         return;
     }
     dom.monthlySection.classList.remove('hidden');
+    const { rows, complete, tenencia, goal } = ctx;
 
     const signedClass = (v) => (v >= 0 ? 'cell-positive' : 'cell-negative');
 
@@ -1234,6 +1359,7 @@ const renderMonthlySection = () => {
     dom.monthlyTableBody.innerHTML = [...rows].reverse().map(r => {
         const ratio = r.aportes > 0 ? (r.ganancia / r.aportes) * 100 : null;
         const enCurso = r.isCurrent ? ` <small style="color:var(--text-muted)">(hasta ${formatDateShort(r.closeDate)})</small>` : '';
+        const real = r.inflacion !== null && !r.isCurrent ? realReturnPct(r.rendFondo, r.inflacion) : null;
         return `
             <tr>
                 <td><strong>${formatMonthLabel(r.month)}</strong>${enCurso}</td>
@@ -1242,6 +1368,8 @@ const renderMonthlySection = () => {
                 <td class="text-right">${formatARS(r.neto)}</td>
                 <td class="text-right ${signedClass(r.ganancia)}" style="font-weight:600;">${formatARS(r.ganancia)}</td>
                 <td class="text-right ${signedClass(r.rendFondo)}">${formatPercentage(r.rendFondo)}</td>
+                <td class="text-right text-muted">${r.inflacion !== null ? r.inflacion.toFixed(1) + '%' : '<small>s/d</small>'}</td>
+                <td class="text-right ${real === null ? '' : signedClass(real)}">${real === null ? '—' : formatPercentage(real)}</td>
                 <td class="text-right">${ratio === null ? '—' : ratio.toFixed(1) + '%'}</td>
                 <td class="text-right">${formatARS(r.tenencia)}</td>
             </tr>`;
@@ -1250,7 +1378,6 @@ const renderMonthlySection = () => {
     const totAportes = rows.reduce((s, r) => s + r.aportes, 0);
     const totRescates = rows.reduce((s, r) => s + r.rescates, 0);
     const totGanancia = rows.reduce((s, r) => s + r.ganancia, 0);
-    const tenencia = rows[rows.length - 1].tenencia;
     dom.monthlyTableFoot.innerHTML = `
         <tr>
             <td>Total</td>
@@ -1258,35 +1385,27 @@ const renderMonthlySection = () => {
             <td class="text-right">${totRescates > 0 ? '-' + formatARS(totRescates) : '—'}</td>
             <td class="text-right">${formatARS(totAportes - totRescates)}</td>
             <td class="text-right ${signedClass(totGanancia)}">${formatARS(totGanancia)}</td>
-            <td></td>
+            <td></td><td></td><td></td>
             <td class="text-right">${totAportes > 0 ? ((totGanancia / totAportes) * 100).toFixed(1) + '%' : '—'}</td>
             <td class="text-right">${formatARS(tenencia)}</td>
         </tr>`;
 
-    // --- Meta ---
-    const goal = getGoalAmount();
+    // --- Meta (nominal) ---
     const pct = goal > 0 ? Math.min(100, (tenencia / goal) * 100) : 0;
     dom.goalProgressFill.style.width = pct.toFixed(1) + '%';
     dom.goalProgressText.innerText = `${formatARS(tenencia)} de ${formatARS(goal)} (${pct.toFixed(1)}%)`;
     dom.goalRemainingText.innerText = tenencia >= goal ? '¡Meta alcanzada!' : `Faltan ${formatARS(goal - tenencia)}`;
 
-    // Promedios sobre meses completos (sin el mes en curso)
-    const complete = rows.filter(r => !r.isCurrent);
+    const realEls = [dom.goalInflation, dom.goalRealReturn, dom.goalRealIncome, dom.goalRealEta];
     if (complete.length === 0) {
-        [dom.goalAvgContribution, dom.goalAvgReturn, dom.goalCurrentIncome, dom.goalTargetIncome, dom.goalEta].forEach(el => { el.innerText = '---'; });
+        [dom.goalAvgContribution, dom.goalAvgReturn, dom.goalCurrentIncome, dom.goalTargetIncome, dom.goalEta, ...realEls].forEach(el => { if (el) el.innerText = '---'; });
         dom.goalEtaSub.innerText = 'Hace falta al menos un mes completo';
         return;
     }
-    const avgNeto = complete.reduce((s, r) => s + r.neto, 0) / complete.length;
-    // Promedio geométrico del rendimiento mensual del fondo
-    const growth = complete.reduce((p, r) => p * (1 + r.rendFondo / 100), 1);
-    const avgReturn = Math.pow(growth, 1 / complete.length) - 1;
-    const periodo = complete.length > 1
-        ? `${formatMonthLabel(complete[0].month)} – ${formatMonthLabel(complete[complete.length - 1].month)}`
-        : formatMonthLabel(complete[0].month);
+    const { avgNeto, avgReturn } = ctx;
 
     dom.goalAvgContribution.innerText = formatARS(avgNeto);
-    dom.goalAvgContributionSub.innerText = `por mes (${periodo})`;
+    dom.goalAvgContributionSub.innerText = `por mes (${periodLabel(complete)})`;
     dom.goalAvgReturn.innerText = formatPercentage(avgReturn * 100);
     dom.goalAvgReturnSub.innerText = `por mes, ≈ ${formatPercentage((Math.pow(1 + avgReturn, 12) - 1) * 100)} anual`;
     dom.goalCurrentIncome.innerText = formatARS(tenencia * avgReturn);
@@ -1295,29 +1414,46 @@ const renderMonthlySection = () => {
     if (tenencia >= goal) {
         dom.goalEta.innerText = '¡Ya llegaste!';
         dom.goalEtaSub.innerText = '';
+    } else {
+        const months = monthsToGoal(tenencia, goal, avgNeto, avgReturn);
+        dom.goalEta.innerText = months === null ? 'No se alcanza' : `~${formatEtaMonth(ctx.lastMonth, months)}`;
+        dom.goalEtaSub.innerText = months === null ? 'con el aporte y rendimiento promedio actuales' : `en ${formatDuration(months)}`;
+    }
+
+    // --- Meta en términos reales (pesos de hoy) ---
+    if (!dom.goalRealSection) return;
+    if (ctx.avgRealReturn === undefined) {
+        dom.goalRealSection.classList.add('hidden');
         return;
     }
-    // Proyección mes a mes: valor = valor × (1 + rendimiento) + aporte neto
-    let value = tenencia;
-    let months = 0;
-    while (value < goal && months < 600) {
-        value = value * (1 + avgReturn) + avgNeto;
-        months++;
+    dom.goalRealSection.classList.remove('hidden');
+    const rr = ctx.avgRealReturn;
+    const inflPeriod = periodLabel(ctx.inflMonths);
+
+    dom.goalInflation.innerText = formatPercentage(ctx.avgInflation * 100);
+    dom.goalInflationSub.innerText = `por mes (${inflPeriod}), acumulada ${formatPercentage(ctx.accInflation)}`;
+    dom.goalRealReturn.innerText = formatPercentage(rr * 100);
+    dom.goalRealReturn.className = 'goal-stat-value ' + (rr >= 0 ? 'cell-positive' : 'cell-negative');
+    dom.goalRealReturnSub.innerText = `por mes: el fondo subió ${formatPercentage(ctx.accFondo)} vs. inflación ${formatPercentage(ctx.accInflation)}`;
+
+    const realIncome = goal * rr;
+    dom.goalRealIncome.innerText = formatARS(realIncome);
+    dom.goalRealIncome.className = 'goal-stat-value ' + (realIncome >= 0 ? 'cell-positive' : 'cell-negative');
+    dom.goalRealIncomeSub.innerText = realIncome >= 0
+        ? `por mes por encima de la inflación (de ${formatARS(goal * avgReturn)} nominales)`
+        : `por mes de poder de compra perdido, aunque nominalmente ganes ${formatARS(goal * avgReturn)}`;
+
+    if (tenencia >= goal) {
+        dom.goalRealEta.innerText = '¡Ya llegaste!';
+        dom.goalRealEtaSub.innerText = '';
+    } else {
+        // En pesos de hoy: la meta queda fija, los aportes se suponen ajustados por inflación y el fondo rinde su promedio real
+        const realMonths = monthsToGoal(tenencia, goal, avgNeto, rr);
+        dom.goalRealEta.innerText = realMonths === null ? 'No se alcanza' : `~${formatEtaMonth(ctx.lastMonth, realMonths)}`;
+        dom.goalRealEtaSub.innerText = realMonths === null
+            ? 'con el aporte y rendimiento real promedio'
+            : `en ${formatDuration(realMonths)} (meta de ${formatARS(goal)} en pesos de hoy)`;
     }
-    if (value < goal) {
-        dom.goalEta.innerText = 'No se alcanza';
-        dom.goalEtaSub.innerText = 'con el aporte y rendimiento promedio actuales';
-        return;
-    }
-    const [ly, lm] = rows[rows.length - 1].month.split('-').map(Number);
-    const etaIndex = (lm - 1) + months;
-    const etaLabel = `${MONTH_NAMES[etaIndex % 12]} ${ly + Math.floor(etaIndex / 12)}`;
-    const years = Math.floor(months / 12), rest = months % 12;
-    const duration = years > 0
-        ? `${years} año${years > 1 ? 's' : ''}${rest ? ` y ${rest} mes${rest > 1 ? 'es' : ''}` : ''}`
-        : `${months} mes${months > 1 ? 'es' : ''}`;
-    dom.goalEta.innerText = `~${etaLabel}`;
-    dom.goalEtaSub.innerText = `en ${duration}`;
 };
 
 const recalculateAndRender = () => {
@@ -2010,6 +2146,7 @@ async function handlePdfImport(e) {
     
     let successCount = 0;
     let duplicateCount = 0;
+    let importedRescates = 0;
     const failedFiles = [];
     
     // Claves de movimientos ya cargados, para no duplicar al reimportar los mismos PDFs
@@ -2063,6 +2200,7 @@ async function handlePdfImport(e) {
                 };
                 
                 state.subscriptions.push(newSubscription);
+                if (newSubscription.type === 'Rescate') importedRescates += newSubscription.amount;
                 successCount++;
             } else {
                 console.warn(`No se pudieron extraer todos los datos del PDF: ${file.name}`, parsed);
@@ -2080,7 +2218,8 @@ async function handlePdfImport(e) {
             state.subscriptions.sort((a, b) => new Date(b.date) - new Date(a.date));
             saveLocalStorageData();
             recalculateAndRender();
-            showAlert('Importación PDF Exitosa', `Se cargaron ${successCount} comprobantes correctamente.${detail}`);
+            const impact = importedRescates > 0 ? getRescateImpactMessage(importedRescates) : '';
+            showAlert('Importación PDF Exitosa', `Se cargaron ${successCount} comprobantes correctamente.${detail}${impact}`);
         } else if (duplicateCount > 0) {
             showAlert('Sin Cambios', `Todos los comprobantes seleccionados ya estaban cargados.${detail}`);
         } else {
