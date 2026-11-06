@@ -38,6 +38,7 @@ Presentación premium mediante tarjetas visuales dinámicas:
 ### 4. Simulador de Comparativa de Inversiones
 La app descarga en tiempo real tasas históricas de plazo fijo, cotizaciones del dólar blue y tasas fintech para simular cuatro alternativas de inversión aplicadas a tus mismos depósitos y fechas:
 *   **Plazo Fijo (rescate mensual):** Simula una estrategia realizable con depósitos diarios: durante el mes la plata queda en Delta, el último día hábil se rescata todo y al día hábil siguiente se arma un plazo fijo a 30 días con la TNA promedio de depósitos a 30 días (BCRA) de esa fecha. Cada plazo fijo se renueva con sus intereses al vencer. Los plazos fijos vigentes se valúan con el interés devengado.
+*   **Plazo Fijo UVA (rescate mensual):** Misma estrategia, pero con plazo fijo UVA a 90 días: el capital ajusta por la variación de la UVA (inflación) y paga además ~1% TNA. Se renueva al vencer.
 *   **Mercado Pago (FCI):** Simula intereses con capitalización compuesta diaria aplicando una TNA estimada del 85% de la tasa de Plazo Fijo diaria.
 *   **Naranja X (Frascos):** Simula rendimientos diarios compuestos usando el 90% de la TNA de plazo fijo diaria y respetando el tope oficial de remuneración actual de $1.000.000 (el excedente no genera intereses).
 *   **Dólar Blue:** Simula la compra de dólares al valor de venta del día de cada suscripción y su posterior venta al valor de compra actual del dólar blue, valorizando la tenencia resultante.

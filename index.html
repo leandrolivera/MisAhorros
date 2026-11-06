@@ -150,7 +150,7 @@
                             <button type="button" class="btn btn-secondary hidden" id="btn-cancel-edit" style="width: auto; padding: 12px;" title="Cancelar Edición">
                                 <i class="fa-solid fa-xmark"></i>
                             </button>
-                        </div>>
+                        </div>
                     </form>
                     
                     <!-- Loader del Formulario -->
@@ -240,6 +240,18 @@
                         </div>
                     </div>
 
+                    <!-- Plazo Fijo UVA: rescate a fin de mes → PF UVA 90 días -->
+                    <div class="card glass-card comparison-card border-left-plazofijouva" id="card-plazofijouva">
+                        <div class="comp-header">
+                            <span class="comp-label"><i class="fa-solid fa-shield-halved"></i> Simulación Plazo Fijo UVA</span>
+                            <span class="comp-badge badge-plazofijouva" title="Durante el mes la plata queda en Delta; el último día hábil se rescata todo y se arma un plazo fijo UVA a 90 días (capital ajustado por UVA + 1% TNA aprox.) que se renueva al vencer. Mientras corre no se puede retirar.">Rescate mensual → UVA 90d</span>
+                        </div>
+                        <div class="comp-body">
+                            <h4 class="comp-value" id="val-comp-plazofijouva">$0,00</h4>
+                            <span class="comp-diff" id="diff-comp-plazofijouva">--- vs. Delta</span>
+                        </div>
+                    </div>
+
                     <!-- Mercado Pago FCI -->
                     <div class="card glass-card comparison-card border-left-mercadopago" id="card-mercadopago">
                         <div class="comp-header">
@@ -285,6 +297,7 @@
                             <span class="legend-item" data-target="capital"><span class="legend-dot color-capital"></span> Capital Invertido</span>
                             <span class="legend-item" data-target="delta"><span class="legend-dot color-tenencia"></span> Delta Retorno Real</span>
                             <span class="legend-item" data-target="plazofijo"><span class="legend-dot color-plazofijo"></span> Plazo Fijo (mensual)</span>
+                            <span class="legend-item" data-target="plazofijouva"><span class="legend-dot color-plazofijouva"></span> Plazo Fijo UVA</span>
                             <span class="legend-item" data-target="mercadopago"><span class="legend-dot color-mercadopago"></span> Mercado Pago</span>
                             <span class="legend-item" data-target="naranjax"><span class="legend-dot color-naranjax"></span> Naranja X</span>
                             <span class="legend-item" data-target="dolar"><span class="legend-dot color-dolar"></span> Dólar Blue</span>

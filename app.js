@@ -24,12 +24,14 @@ let state = {
         capital: true,
         delta: true,
         plazofijo: true,
+        plazofijouva: true,
         mercadopago: true,
         naranjax: true,
         dolar: true
     },
     deltaHistory: [],            // Historial de cotizaciones de Delta
-    inflation: {}                // Inflación mensual INDEC { 'YYYY-MM': % }
+    inflation: {},               // Inflación mensual INDEC { 'YYYY-MM': % }
+    uvaRates: []                 // Serie diaria de la UVA
 };
 
 // SELECTORES DOM
@@ -119,6 +121,8 @@ const dom = {
     comparisonSection: document.getElementById('comparison-section'),
     valCompPlazoFijo: document.getElementById('val-comp-plazofijo'),
     diffCompPlazoFijo: document.getElementById('diff-comp-plazofijo'),
+    valCompPlazoFijoUva: document.getElementById('val-comp-plazofijouva'),
+    diffCompPlazoFijoUva: document.getElementById('diff-comp-plazofijouva'),
     valCompMercadoPago: document.getElementById('val-comp-mercadopago'),
     diffCompMercadoPago: document.getElementById('diff-comp-mercadopago'),
     
@@ -131,6 +135,7 @@ const dom = {
     cardDelta: document.getElementById('card-delta'),
     cardGanancia: document.getElementById('card-ganancia'),
     cardPlazoFijo: document.getElementById('card-plazofijo'),
+    cardPlazoFijoUva: document.getElementById('card-plazofijouva'),
     cardMercadoPago: document.getElementById('card-mercadopago'),
     cardNaranjaX: document.getElementById('card-naranjax'),
     cardDolar: document.getElementById('card-dolar')
@@ -205,6 +210,17 @@ document.addEventListener('DOMContentLoaded', () => {
         fetchHistoricalRates();
     });
 });
+
+// TARJETA ASOCIADA A CADA SERIE DE LA LEYENDA
+const getCardForTarget = (target) => ({
+    capital: dom.cardCapital,
+    delta: dom.cardDelta,
+    plazofijo: dom.cardPlazoFijo,
+    plazofijouva: dom.cardPlazoFijoUva,
+    mercadopago: dom.cardMercadoPago,
+    naranjax: dom.cardNaranjaX,
+    dolar: dom.cardDolar
+}[target]);
 
 // EVENT LISTENERS
 const setupEventListeners = () => {
@@ -311,7 +327,7 @@ const setupEventListeners = () => {
             }
             
             // Alternar clase .hidden en la tarjeta asociada
-            const cardElement = dom['card' + target.charAt(0).toUpperCase() + target.slice(1)];
+            const cardElement = getCardForTarget(target);
             if (cardElement) {
                 if (state.activeInvestments[target]) {
                     cardElement.classList.remove('hidden');
@@ -325,6 +341,7 @@ const setupEventListeners = () => {
                 const labelMap = {
                     delta: 'Delta Retorno Real',
                     plazofijo: 'Simulación Plazo Fijo',
+                    plazofijouva: 'Simulación Plazo Fijo UVA',
                     mercadopago: 'Simulación Mercado Pago',
                     naranjax: 'Simulación Naranja X',
                     dolar: 'Simulación Dólar Blue',
@@ -415,7 +432,10 @@ const fetchHistoricalRates = async () => {
         .then(async res => {
             if (!res.ok) throw new Error('Error en plazo fijo');
             const data = await res.json();
-            state.plazoFijoRates = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            // La API mezcla unidades: hasta 2025 la TNA viene como fracción (0.34 = 34%), después como % (54.57)
+            state.plazoFijoRates = data
+                .map(r => ({ ...r, valor: r.valor < 5 ? r.valor * 100 : r.valor }))
+                .sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
             tnaCache.clear();
             state.ratesFetched = true;
             console.log(`Tasas Plazo Fijo cargadas: ${state.plazoFijoRates.length} registros`);
@@ -492,8 +512,23 @@ const fetchHistoricalRates = async () => {
             state.inflation = {};
         });
 
+    // Promesa 6: Serie de la UVA (para el plazo fijo UVA)
+    const uvaPromise = fetch('https://api.argentinadatos.com/v1/finanzas/indices/uva', { cache: 'no-cache' })
+        .then(async res => {
+            if (!res.ok) throw new Error('Error en UVA');
+            const data = await res.json();
+            state.uvaRates = (Array.isArray(data) ? data : [])
+                .filter(r => r.fecha && typeof r.valor === 'number')
+                .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0));
+            console.log(`Serie UVA cargada: ${state.uvaRates.length} registros`);
+        })
+        .catch(err => {
+            console.error('Error cargando UVA:', err);
+            state.uvaRates = [];
+        });
+
     // Esperar a que se resuelvan todas las promesas
-    await Promise.allSettled([pfPromise, dolarPromise, nxPromise, deltaHistoryPromise, inflationPromise]);
+    await Promise.allSettled([pfPromise, dolarPromise, nxPromise, deltaHistoryPromise, inflationPromise, uvaPromise]);
     
     setApiStatus('success', 'API Conectada');
     
@@ -579,8 +614,10 @@ const simulatePlazoFijo = (amount, startDateStr, endDateStr) => {
 //  3. El día hábil siguiente se constituye un plazo fijo a 30 días con la TNA vigente.
 //  4. Al vencer, capital + intereses se renuevan (el día hábil siguiente si vence en feriado/fin de semana).
 // Un plazo fijo vigente se valúa con el interés devengado a la fecha (aunque no se pueda retirar antes).
+// `product` define el plazo (termDays), qué se guarda al constituirlo (open) y cómo se valúa (valueAt),
+// así la misma estrategia sirve para plazo fijo tradicional y UVA.
 // Devuelve { 'YYYY-MM-DD': valor total } para cada día, o null si falta el histórico de Delta.
-const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) => {
+const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product) => {
     if (!subscriptions || subscriptions.length === 0) return {};
     if (!state.deltaHistory || state.deltaHistory.length === 0) return null;
 
@@ -631,7 +668,7 @@ const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) => {
         const stillRunning = [];
         deposits.forEach(pf => {
             if (now >= pf.maturityTime) {
-                pendingCash += pf.capital * (1 + (pf.tna / 100) * (30 / 365));
+                pendingCash += product.valueAt(pf, dateStr, product.termDays);
             } else {
                 stillRunning.push(pf);
             }
@@ -650,7 +687,7 @@ const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) => {
 
         // 3. En día hábil, la plata en espera se coloca en un plazo fijo nuevo
         if (isBusinessDay && pendingCash > 0) {
-            deposits.push({ capital: pendingCash, startTime: now, maturityTime: now + 30 * DAY_MS, tna: getTnaForDate(dateStr) });
+            deposits.push({ capital: pendingCash, startTime: now, maturityTime: now + product.termDays * DAY_MS, ...product.open(dateStr) });
             pendingCash = 0;
         }
 
@@ -663,7 +700,7 @@ const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) => {
         // 5. Valuación del día
         const pfValue = deposits.reduce((sum, pf) => {
             const elapsedDays = Math.round((now - pf.startTime) / DAY_MS);
-            return sum + pf.capital * (1 + (pf.tna / 100) * (elapsedDays / 365));
+            return sum + product.valueAt(pf, dateStr, elapsedDays);
         }, 0);
         valuations[dateStr] = cuotapartes * (price || 0) + pendingCash + pfValue;
 
@@ -671,6 +708,34 @@ const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) => {
     }
 
     return valuations;
+};
+
+// Plazo fijo tradicional a 30 días: interés simple con la TNA del día en que se constituye
+const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) =>
+    simulateMonthlyRolloverSeries(subscriptions, endDateStr, {
+        termDays: 30,
+        open: (dateStr) => ({ tna: getTnaForDate(dateStr) }),
+        valueAt: (pf, dateStr, days) => pf.capital * (1 + (pf.tna / 100) * (days / 365))
+    });
+
+// VALOR DE LA UVA EN UNA FECHA (o el anterior publicado)
+const getUvaForDate = (dateStr) => {
+    if (!state.uvaRates || state.uvaRates.length === 0) return null;
+    const idx = findLastIndexOnOrBefore(state.uvaRates, dateStr);
+    return idx >= 0 ? state.uvaRates[idx].valor : state.uvaRates[0].valor;
+};
+
+// TNA adicional que pagan los bancos sobre la UVA en un plazo fijo UVA (no precancelable). Aproximación.
+const PF_UVA_TNA = 1.0;
+
+// Plazo fijo UVA a 90 días: el capital ajusta por UVA (inflación) y además paga PF_UVA_TNA anual
+const simulatePlazoFijoUvaSeries = (subscriptions, endDateStr) => {
+    if (!state.uvaRates || state.uvaRates.length === 0) return null;
+    return simulateMonthlyRolloverSeries(subscriptions, endDateStr, {
+        termDays: 90,
+        open: (dateStr) => ({ uva: getUvaForDate(dateStr) }),
+        valueAt: (pf, dateStr, days) => pf.capital * (getUvaForDate(dateStr) / pf.uva) * (1 + (PF_UVA_TNA / 100) * (days / 365))
+    });
 };
 
 // ALGORITMO SIMULACIÓN MERCADO PAGO COMPUESTO DIARIO
@@ -1584,6 +1649,15 @@ const recalculateAndRender = () => {
         const nxValuationsMap = simulateNaranjaXSeries(state.subscriptions, endSimulationDate);
         totalNaranjaXVal = nxValuationsMap[endSimulationDate] || 0;
         
+        // Renderizar Plazo Fijo UVA
+        const pfUvaMap = simulatePlazoFijoUvaSeries(state.subscriptions, endSimulationDate);
+        if (pfUvaMap && dom.valCompPlazoFijoUva) {
+            const totalPfUva = pfUvaMap[endSimulationDate] || 0;
+            dom.valCompPlazoFijoUva.innerText = formatARS(totalPfUva);
+            const diffUva = totalPfUva - tenenciaValorizada;
+            formatDiffBadge(dom.diffCompPlazoFijoUva, diffUva, tenenciaValorizada > 0 ? (diffUva / tenenciaValorizada) * 100 : 0);
+        }
+
         // Renderizar Plazo Fijo
         dom.valCompPlazoFijo.innerText = formatARS(totalPlazoFijoVal);
         const diffPF = totalPlazoFijoVal - tenenciaValorizada;
@@ -1616,9 +1690,9 @@ const recalculateAndRender = () => {
     renderMonthlySection();
     
     // 5. Aplicar visibilidad de tarjetas del panel y la leyenda personalizada
-    const keys = ['capital', 'delta', 'plazofijo', 'mercadopago', 'naranjax', 'dolar'];
+    const keys = ['capital', 'delta', 'plazofijo', 'plazofijouva', 'mercadopago', 'naranjax', 'dolar'];
     keys.forEach(key => {
-        const cardElement = dom['card' + key.charAt(0).toUpperCase() + key.slice(1)];
+        const cardElement = getCardForTarget(key);
         if (cardElement) {
             if (state.activeInvestments[key]) {
                 cardElement.classList.remove('hidden');
@@ -1831,6 +1905,8 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     const capitalData = dataPoints.map(dp => dp.capital);
     const valuationData = dataPoints.map(dp => dp.valuation);
     const pfData = dataPoints.map(dp => dp.plazoFijo || 0);
+    const pfUvaMap = simulatePlazoFijoUvaSeries(chronSub, apiCloseDate);
+    const pfUvaData = dataPoints.map(dp => (pfUvaMap ? pfUvaMap[dp.date] || 0 : 0));
     const mpData = dataPoints.map(dp => dp.mercadoPago || 0);
     const nxData = dataPoints.map(dp => dp.naranjax || 0);
     const dolarData = dataPoints.map(dp => dp.dolar || 0);
@@ -1886,6 +1962,22 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
                     pointRadius: 2.5,
                     pointHoverRadius: 4.5,
                     hidden: !state.activeInvestments.plazofijo
+                },
+                {
+                    label: 'Simulación Plazo Fijo UVA',
+                    data: pfUvaData,
+                    borderColor: '#f472b6',
+                    borderWidth: 2,
+                    borderDash: [2, 3],
+                    backgroundColor: 'transparent',
+                    fill: false,
+                    tension: 0.1,
+                    pointBackgroundColor: '#f472b6',
+                    pointBorderColor: '#ffffff',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 4.5,
+                    hidden: !state.activeInvestments.plazofijouva
                 },
                 {
                     label: 'Simulación Mercado Pago',
