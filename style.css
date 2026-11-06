@@ -1033,6 +1033,111 @@ body {
 }
 
 /* RESPONSIVE DESIGN */
+/* META DE CAPITAL Y RESUMEN MENSUAL */
+.goal-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.goal-input-wrapper label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.goal-input-wrapper .input-wrapper input {
+    width: 190px;
+    padding: 8px 12px 8px 28px;
+}
+
+.goal-progress {
+    margin-bottom: 20px;
+}
+
+.goal-progress-bar {
+    width: 100%;
+    height: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.goal-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-green));
+    border-radius: 999px;
+    transition: width 0.6s ease;
+}
+
+.goal-progress-labels {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.goal-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.goal-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 14px 16px;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--border-radius-md);
+}
+
+.goal-stat-highlight {
+    border-color: rgba(139, 92, 246, 0.4);
+    background: var(--color-primary-soft);
+}
+
+.goal-stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+}
+
+.goal-stat-value {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.goal-stat-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.goal-note {
+    margin-top: 12px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.metric-label .fa-circle-question {
+    font-size: 0.75em;
+    opacity: 0.6;
+    cursor: help;
+}
+
+.data-table .cell-positive { color: var(--color-green); }
+.data-table .cell-negative { color: var(--color-red); }
+.data-table tfoot td {
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.2);
+}
+
 @media (max-width: 992px) {
     .app-main {
         grid-template-columns: 1fr;

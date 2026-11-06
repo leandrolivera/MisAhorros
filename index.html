@@ -207,9 +207,9 @@
                             <i class="fa-solid fa-calendar-day"></i>
                         </div>
                         <div class="metric-data">
-                            <span class="metric-label">Ganancia Diaria Pura</span>
+                            <span class="metric-label" title="Cuánto ganó (o perdió) tu tenencia entre los dos últimos cierres publicados del fondo, sin contar la plata nueva que ingresaste ese día.">Ganancia Diaria Pura <i class="fa-regular fa-circle-question"></i></span>
                             <h3 class="metric-value" id="val-ganancia-diaria">$0,00</h3>
-                            <span class="metric-subtext">hoy</span>
+                            <span class="metric-subtext" id="val-ganancia-diaria-sub">último cierre</span>
                         </div>
                     </div>
 
@@ -219,9 +219,9 @@
                             <i class="fa-solid fa-calendar-days"></i>
                         </div>
                         <div class="metric-data">
-                            <span class="metric-label">Ganancia Mensual Pura</span>
+                            <span class="metric-label" title="Cuánto ganó tu tenencia desde el último cierre del mes anterior hasta el último cierre publicado, sin contar los aportes ni rescates del mes.">Ganancia Mensual Pura <i class="fa-regular fa-circle-question"></i></span>
                             <h3 class="metric-value" id="val-ganancia-mensual">$0,00</h3>
-                            <span class="metric-subtext">este mes</span>
+                            <span class="metric-subtext" id="val-ganancia-mensual-sub">este mes</span>
                         </div>
                     </div>
                 </div>
@@ -302,6 +302,77 @@
                 </div>
             </section>
         </main>
+
+        <!-- Sección Inferior: Meta y Resumen Mensual -->
+        <section class="app-footer-table hidden" id="monthly-section">
+            <div class="card glass-card table-card">
+                <div class="table-header">
+                    <h2 class="card-title"><i class="fa-solid fa-bullseye"></i> Meta de Capital</h2>
+                    <div class="goal-input-wrapper">
+                        <label for="input-goal">Meta</label>
+                        <div class="input-wrapper">
+                            <span class="input-icon">$</span>
+                            <input type="number" id="input-goal" min="0" step="100000">
+                        </div>
+                    </div>
+                </div>
+                <div class="goal-progress">
+                    <div class="goal-progress-bar"><div class="goal-progress-fill" id="goal-progress-fill"></div></div>
+                    <div class="goal-progress-labels">
+                        <span id="goal-progress-text">---</span>
+                        <span id="goal-remaining-text">---</span>
+                    </div>
+                </div>
+                <div class="goal-stats">
+                    <div class="goal-stat">
+                        <span class="goal-stat-label">Aporte neto promedio</span>
+                        <span class="goal-stat-value" id="goal-avg-contribution">---</span>
+                        <span class="goal-stat-sub" id="goal-avg-contribution-sub">por mes</span>
+                    </div>
+                    <div class="goal-stat">
+                        <span class="goal-stat-label">Rendimiento promedio del fondo</span>
+                        <span class="goal-stat-value" id="goal-avg-return">---</span>
+                        <span class="goal-stat-sub" id="goal-avg-return-sub">por mes</span>
+                    </div>
+                    <div class="goal-stat">
+                        <span class="goal-stat-label">Rendimiento de tu tenencia hoy</span>
+                        <span class="goal-stat-value" id="goal-current-income">---</span>
+                        <span class="goal-stat-sub">por mes, a ese rendimiento</span>
+                    </div>
+                    <div class="goal-stat">
+                        <span class="goal-stat-label">Rendimiento al llegar a la meta</span>
+                        <span class="goal-stat-value" id="goal-target-income">---</span>
+                        <span class="goal-stat-sub">por mes, a ese rendimiento</span>
+                    </div>
+                    <div class="goal-stat goal-stat-highlight">
+                        <span class="goal-stat-label">Proyección a este ritmo</span>
+                        <span class="goal-stat-value" id="goal-eta">---</span>
+                        <span class="goal-stat-sub" id="goal-eta-sub">---</span>
+                    </div>
+                </div>
+                <p class="goal-note">Proyección en pesos nominales, suponiendo que seguís aportando el promedio de los meses completos y que el fondo rinde su promedio mensual de esos mismos meses. No es una predicción: el rendimiento de Delta Retorno Real sigue a la inflación y varía mes a mes.</p>
+
+                <h2 class="card-title" style="margin-top: 28px;"><i class="fa-solid fa-calendar-days"></i> Resumen Mensual</h2>
+                <div class="table-responsive">
+                    <table class="data-table" id="monthly-table">
+                        <thead>
+                            <tr>
+                                <th>Mes</th>
+                                <th class="text-right">Aportes</th>
+                                <th class="text-right">Rescates</th>
+                                <th class="text-right">Aporte neto</th>
+                                <th class="text-right" title="Ganancia pura del mes: variación de tu tenencia sin contar aportes ni rescates">Ganancia del mes</th>
+                                <th class="text-right" title="Variación de la cotización del fondo en el mes">Rend. fondo</th>
+                                <th class="text-right" title="Qué parte de lo que aportaste ese mes cubrió la ganancia del fondo">Ganancia / aportes</th>
+                                <th class="text-right">Tenencia a fin de mes</th>
+                            </tr>
+                        </thead>
+                        <tbody id="monthly-table-body"></tbody>
+                        <tfoot id="monthly-table-foot"></tfoot>
+                    </table>
+                </div>
+            </div>
+        </section>
 
         <!-- Sección Inferior: Historial de Movimientos -->
         <footer class="app-footer-table">

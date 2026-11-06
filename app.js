@@ -64,6 +64,24 @@ const dom = {
     
     valGananciaDiaria: document.getElementById('val-ganancia-diaria'),
     valGananciaMensual: document.getElementById('val-ganancia-mensual'),
+    valGananciaDiariaSub: document.getElementById('val-ganancia-diaria-sub'),
+    valGananciaMensualSub: document.getElementById('val-ganancia-mensual-sub'),
+
+    monthlySection: document.getElementById('monthly-section'),
+    monthlyTableBody: document.getElementById('monthly-table-body'),
+    monthlyTableFoot: document.getElementById('monthly-table-foot'),
+    inputGoal: document.getElementById('input-goal'),
+    goalProgressFill: document.getElementById('goal-progress-fill'),
+    goalProgressText: document.getElementById('goal-progress-text'),
+    goalRemainingText: document.getElementById('goal-remaining-text'),
+    goalAvgContribution: document.getElementById('goal-avg-contribution'),
+    goalAvgContributionSub: document.getElementById('goal-avg-contribution-sub'),
+    goalAvgReturn: document.getElementById('goal-avg-return'),
+    goalAvgReturnSub: document.getElementById('goal-avg-return-sub'),
+    goalCurrentIncome: document.getElementById('goal-current-income'),
+    goalTargetIncome: document.getElementById('goal-target-income'),
+    goalEta: document.getElementById('goal-eta'),
+    goalEtaSub: document.getElementById('goal-eta-sub'),
     
     chartPlaceholder: document.getElementById('chart-placeholder-msg'),
     searchInput: document.getElementById('search-input'),
@@ -205,6 +223,19 @@ const setupEventListeners = () => {
         renderMovementsTable(e.target.value);
     });
     
+    // Meta de capital (se guarda en LocalStorage)
+    if (dom.inputGoal) {
+        dom.inputGoal.value = getGoalAmount();
+        dom.inputGoal.addEventListener('change', (e) => {
+            const val = parseFloat(e.target.value);
+            if (!isNaN(val) && val > 0) {
+                localStorage.setItem('mis_ahorros_goal', String(val));
+            }
+            dom.inputGoal.value = getGoalAmount();
+            renderMonthlySection();
+        });
+    }
+
     // Exportar Datos
     dom.btnExportData.addEventListener('click', exportDataToJSON);
     
@@ -1091,6 +1122,204 @@ const calcularGananciaMensualPura = (subscriptions, cotizacionHoy, cotizacionFin
     return valorFinal - valorInicial - flujoNetoMes;
 };
 
+// FECHA DEL ÚLTIMO CIERRE PUBLICADO ANTERIOR A dateStr (según el histórico de Delta)
+const getPrevCloseDate = (dateStr) => {
+    if (!state.deltaHistory || state.deltaHistory.length === 0) return null;
+    let lo = 0, hi = state.deltaHistory.length - 1, ans = null;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const d = state.deltaHistory[mid].fecha.substring(0, 10);
+        if (d < dateStr) { ans = d; lo = mid + 1; } else { hi = mid - 1; }
+    }
+    return ans;
+};
+
+// DD/MM
+const formatDateShort = (dateStr) => {
+    const p = dateStr.split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}` : dateStr;
+};
+
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const formatMonthLabel = (ym) => `${MONTH_NAMES[parseInt(ym.substring(5, 7), 10) - 1]} ${ym.substring(0, 4)}`;
+
+const DEFAULT_GOAL = 30000000;
+const getGoalAmount = () => {
+    const val = parseFloat(localStorage.getItem('mis_ahorros_goal'));
+    return !isNaN(val) && val > 0 ? val : DEFAULT_GOAL;
+};
+
+// RESUMEN MENSUAL: aportes, rescates y ganancia pura de cada mes con movimientos.
+// Ganancia del mes = tenencia al último cierre del mes - tenencia al cierre del mes anterior - aporte neto del mes
+const computeMonthlySummary = () => {
+    if (!state.deltaHistory || state.deltaHistory.length === 0 || state.subscriptions.length === 0) return [];
+
+    const priceOnOrBefore = (dateStr) => {
+        const idx = findLastIndexOnOrBefore(state.deltaHistory, dateStr);
+        return idx >= 0
+            ? { date: state.deltaHistory[idx].fecha.substring(0, 10), price: state.deltaHistory[idx].valorCuotaparte / 1000 }
+            : null;
+    };
+
+    const chron = [...state.subscriptions].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    const firstMonth = chron[0].date.substring(0, 7);
+    const lastDate = state.currentFechaCierre || state.deltaHistory[state.deltaHistory.length - 1].fecha.substring(0, 10);
+    const lastMonth = lastDate.substring(0, 7);
+
+    const rows = [];
+    let cuotapartes = 0;
+    let idx = 0;
+    let ym = firstMonth;
+
+    while (ym <= lastMonth) {
+        const [y, m] = ym.split('-').map(Number);
+        const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`;
+        const prevClose = priceOnOrBefore(getPrevCloseDate(ym + '-01') || ym + '-01');
+        const cuotapartesInicio = cuotapartes;
+        let aportes = 0, rescates = 0;
+
+        while (idx < chron.length && chron[idx].date.startsWith(ym)) {
+            const s = chron[idx];
+            if (s.type === 'Rescate') {
+                rescates += s.amount;
+                cuotapartes -= s.cuotapartes;
+            } else {
+                aportes += s.amount;
+                cuotapartes += s.cuotapartes;
+            }
+            idx++;
+        }
+        if (cuotapartes < 0) cuotapartes = 0;
+
+        // Último cierre del mes (o el último publicado si el mes está en curso)
+        const isCurrent = ym === lastMonth;
+        const close = isCurrent ? priceOnOrBefore(lastDate) : priceOnOrBefore(getPrevCloseDate(nextMonth + '-01') || lastDate);
+        if (!prevClose || !close) { ym = nextMonth; continue; }
+        const closePrice = isCurrent && state.currentCotizacion ? state.currentCotizacion : close.price;
+
+        const valorInicio = cuotapartesInicio * prevClose.price;
+        const valorFin = cuotapartes * closePrice;
+        const neto = aportes - rescates;
+
+        rows.push({
+            month: ym,
+            isCurrent,
+            closeDate: close.date,
+            aportes,
+            rescates,
+            neto,
+            ganancia: valorFin - valorInicio - neto,
+            rendFondo: prevClose.price > 0 ? (closePrice / prevClose.price - 1) * 100 : 0,
+            tenencia: valorFin
+        });
+
+        ym = nextMonth;
+    }
+    return rows;
+};
+
+// RENDERIZAR META DE CAPITAL Y RESUMEN MENSUAL
+const renderMonthlySection = () => {
+    if (!dom.monthlySection) return;
+    const rows = computeMonthlySummary();
+    if (rows.length === 0) {
+        dom.monthlySection.classList.add('hidden');
+        return;
+    }
+    dom.monthlySection.classList.remove('hidden');
+
+    const signedClass = (v) => (v >= 0 ? 'cell-positive' : 'cell-negative');
+
+    // --- Tabla mensual (más reciente arriba) ---
+    dom.monthlyTableBody.innerHTML = [...rows].reverse().map(r => {
+        const ratio = r.aportes > 0 ? (r.ganancia / r.aportes) * 100 : null;
+        const enCurso = r.isCurrent ? ` <small style="color:var(--text-muted)">(hasta ${formatDateShort(r.closeDate)})</small>` : '';
+        return `
+            <tr>
+                <td><strong>${formatMonthLabel(r.month)}</strong>${enCurso}</td>
+                <td class="text-right">${formatARS(r.aportes)}</td>
+                <td class="text-right">${r.rescates > 0 ? '-' + formatARS(r.rescates) : '—'}</td>
+                <td class="text-right">${formatARS(r.neto)}</td>
+                <td class="text-right ${signedClass(r.ganancia)}" style="font-weight:600;">${formatARS(r.ganancia)}</td>
+                <td class="text-right ${signedClass(r.rendFondo)}">${formatPercentage(r.rendFondo)}</td>
+                <td class="text-right">${ratio === null ? '—' : ratio.toFixed(1) + '%'}</td>
+                <td class="text-right">${formatARS(r.tenencia)}</td>
+            </tr>`;
+    }).join('');
+
+    const totAportes = rows.reduce((s, r) => s + r.aportes, 0);
+    const totRescates = rows.reduce((s, r) => s + r.rescates, 0);
+    const totGanancia = rows.reduce((s, r) => s + r.ganancia, 0);
+    const tenencia = rows[rows.length - 1].tenencia;
+    dom.monthlyTableFoot.innerHTML = `
+        <tr>
+            <td>Total</td>
+            <td class="text-right">${formatARS(totAportes)}</td>
+            <td class="text-right">${totRescates > 0 ? '-' + formatARS(totRescates) : '—'}</td>
+            <td class="text-right">${formatARS(totAportes - totRescates)}</td>
+            <td class="text-right ${signedClass(totGanancia)}">${formatARS(totGanancia)}</td>
+            <td></td>
+            <td class="text-right">${totAportes > 0 ? ((totGanancia / totAportes) * 100).toFixed(1) + '%' : '—'}</td>
+            <td class="text-right">${formatARS(tenencia)}</td>
+        </tr>`;
+
+    // --- Meta ---
+    const goal = getGoalAmount();
+    const pct = goal > 0 ? Math.min(100, (tenencia / goal) * 100) : 0;
+    dom.goalProgressFill.style.width = pct.toFixed(1) + '%';
+    dom.goalProgressText.innerText = `${formatARS(tenencia)} de ${formatARS(goal)} (${pct.toFixed(1)}%)`;
+    dom.goalRemainingText.innerText = tenencia >= goal ? '¡Meta alcanzada!' : `Faltan ${formatARS(goal - tenencia)}`;
+
+    // Promedios sobre meses completos (sin el mes en curso)
+    const complete = rows.filter(r => !r.isCurrent);
+    if (complete.length === 0) {
+        [dom.goalAvgContribution, dom.goalAvgReturn, dom.goalCurrentIncome, dom.goalTargetIncome, dom.goalEta].forEach(el => { el.innerText = '---'; });
+        dom.goalEtaSub.innerText = 'Hace falta al menos un mes completo';
+        return;
+    }
+    const avgNeto = complete.reduce((s, r) => s + r.neto, 0) / complete.length;
+    // Promedio geométrico del rendimiento mensual del fondo
+    const growth = complete.reduce((p, r) => p * (1 + r.rendFondo / 100), 1);
+    const avgReturn = Math.pow(growth, 1 / complete.length) - 1;
+    const periodo = complete.length > 1
+        ? `${formatMonthLabel(complete[0].month)} – ${formatMonthLabel(complete[complete.length - 1].month)}`
+        : formatMonthLabel(complete[0].month);
+
+    dom.goalAvgContribution.innerText = formatARS(avgNeto);
+    dom.goalAvgContributionSub.innerText = `por mes (${periodo})`;
+    dom.goalAvgReturn.innerText = formatPercentage(avgReturn * 100);
+    dom.goalAvgReturnSub.innerText = `por mes, ≈ ${formatPercentage((Math.pow(1 + avgReturn, 12) - 1) * 100)} anual`;
+    dom.goalCurrentIncome.innerText = formatARS(tenencia * avgReturn);
+    dom.goalTargetIncome.innerText = formatARS(goal * avgReturn);
+
+    if (tenencia >= goal) {
+        dom.goalEta.innerText = '¡Ya llegaste!';
+        dom.goalEtaSub.innerText = '';
+        return;
+    }
+    // Proyección mes a mes: valor = valor × (1 + rendimiento) + aporte neto
+    let value = tenencia;
+    let months = 0;
+    while (value < goal && months < 600) {
+        value = value * (1 + avgReturn) + avgNeto;
+        months++;
+    }
+    if (value < goal) {
+        dom.goalEta.innerText = 'No se alcanza';
+        dom.goalEtaSub.innerText = 'con el aporte y rendimiento promedio actuales';
+        return;
+    }
+    const [ly, lm] = rows[rows.length - 1].month.split('-').map(Number);
+    const etaIndex = (lm - 1) + months;
+    const etaLabel = `${MONTH_NAMES[etaIndex % 12]} ${ly + Math.floor(etaIndex / 12)}`;
+    const years = Math.floor(months / 12), rest = months % 12;
+    const duration = years > 0
+        ? `${years} año${years > 1 ? 's' : ''}${rest ? ` y ${rest} mes${rest > 1 ? 'es' : ''}` : ''}`
+        : `${months} mes${months > 1 ? 'es' : ''}`;
+    dom.goalEta.innerText = `~${etaLabel}`;
+    dom.goalEtaSub.innerText = `en ${duration}`;
+};
+
 const recalculateAndRender = () => {
     // 1. Cálculos de métricas totales con manejo de Rescates
     let capitalTotal = 0;
@@ -1148,6 +1377,20 @@ const recalculateAndRender = () => {
     const gananciaDiariaPura = calcularGananciaDiariaPura(state.subscriptions, state.currentCotizacion, cotizacionAyer, fechaHoy);
     const gananciaMensualPura = calcularGananciaMensualPura(state.subscriptions, state.currentCotizacion, cotizacionMesAnterior, mesActualStr);
     
+    // Subtítulos con el período exacto que mide cada tarjeta
+    const fechaAyer = getPrevCloseDate(fechaHoy);
+    const fechaCierreMesAnterior = getPrevCloseDate(mesActualStr + '-01');
+    if (dom.valGananciaDiariaSub) {
+        dom.valGananciaDiariaSub.innerText = fechaAyer
+            ? `cierre ${formatDateShort(fechaAyer)} → ${formatDateShort(fechaHoy)}`
+            : 'último cierre';
+    }
+    if (dom.valGananciaMensualSub) {
+        dom.valGananciaMensualSub.innerText = fechaCierreMesAnterior
+            ? `cierre ${formatDateShort(fechaCierreMesAnterior)} → ${formatDateShort(fechaHoy)}`
+            : 'este mes';
+    }
+
     // Actualizar DOM
     if (gananciaDiariaPura !== null) {
         dom.valGananciaDiaria.innerText = formatARS(gananciaDiariaPura);
@@ -1232,8 +1475,9 @@ const recalculateAndRender = () => {
         dom.comparisonSection.classList.add('hidden');
     }
     
-    // 4. Renderizar la tabla de movimientos
+    // 4. Renderizar la tabla de movimientos y el resumen mensual
     renderMovementsTable();
+    renderMonthlySection();
     
     // 5. Aplicar visibilidad de tarjetas del panel y la leyenda personalizada
     const keys = ['capital', 'delta', 'plazofijo', 'mercadopago', 'naranjax', 'dolar'];
