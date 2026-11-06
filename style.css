@@ -1212,3 +1212,54 @@ body {
 
 .goal-stat-value.cell-positive { color: var(--color-green); }
 .goal-stat-value.cell-negative { color: var(--color-red); }
+
+/* ESCALERA DE PLAZOS FIJOS */
+.ladder-tag {
+    font-size: 0.65rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--color-plazofijouva);
+    background: var(--color-plazofijouva-soft);
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-left: 6px;
+}
+
+.ladder-select {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--border-radius-md);
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.ladder-select option {
+    background: var(--bg-primary);
+}
+
+.ladder-next {
+    margin-top: 12px;
+    padding: 14px 16px;
+    border-radius: var(--border-radius-md);
+    background: var(--color-plazofijouva-soft);
+    border: 1px solid rgba(244, 114, 182, 0.35);
+    font-size: 0.88rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+}
+
+.ladder-status {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+
+.ladder-status.vigente { background: var(--color-green-soft); color: var(--color-green); }
+.ladder-status.vencido { background: rgba(255, 255, 255, 0.06); color: var(--text-muted); }
+.data-table tr.ladder-row-done td { opacity: 0.6; }

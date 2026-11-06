@@ -316,6 +316,45 @@
             </section>
         </main>
 
+        <!-- Sección: Escalera de Plazos Fijos (simulación) -->
+        <section class="app-footer-table hidden" id="ladder-section">
+            <div class="card glass-card table-card">
+                <div class="table-header">
+                    <h2 class="card-title"><i class="fa-solid fa-stairs"></i> Escalera de Plazos Fijos <small class="ladder-tag">simulación</small></h2>
+                    <div class="goal-input-wrapper">
+                        <label for="ladder-product">Producto</label>
+                        <select id="ladder-product" class="ladder-select">
+                            <option value="uva">Plazo fijo UVA · 90 días</option>
+                            <option value="tradicional">Plazo fijo tradicional · 30 días</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="goal-note" style="margin: -6px 0 16px;">Cómo quedaría si los aportes diarios se acumulan en Delta y, el último día hábil de cada mes, se rescata todo y se arma un plazo fijo nuevo (al vencer, se renueva con los intereses). Es la misma estrategia que las tarjetas de comparación.</p>
+
+                <div class="goal-stats" id="ladder-summary"></div>
+
+                <div class="ladder-next" id="ladder-next-move"></div>
+
+                <div class="table-responsive" style="margin-top: 16px;">
+                    <table class="data-table" id="ladder-table">
+                        <thead>
+                            <tr>
+                                <th>Constituido</th>
+                                <th>Origen de la plata</th>
+                                <th class="text-right">Capital</th>
+                                <th>Vence</th>
+                                <th class="text-right">Faltan</th>
+                                <th class="text-right">Valor hoy / al vencer</th>
+                                <th class="text-center">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ladder-table-body"></tbody>
+                    </table>
+                </div>
+                <p class="goal-note" id="ladder-note"></p>
+            </div>
+        </section>
+
         <!-- Sección Inferior: Meta y Resumen Mensual -->
         <section class="app-footer-table hidden" id="monthly-section">
             <div class="card glass-card table-card">

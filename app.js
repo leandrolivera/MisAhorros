@@ -86,6 +86,12 @@ const dom = {
     goalEta: document.getElementById('goal-eta'),
     goalEtaSub: document.getElementById('goal-eta-sub'),
     goalRealSection: document.getElementById('goal-real-section'),
+    ladderSection: document.getElementById('ladder-section'),
+    ladderProduct: document.getElementById('ladder-product'),
+    ladderSummary: document.getElementById('ladder-summary'),
+    ladderNextMove: document.getElementById('ladder-next-move'),
+    ladderTableBody: document.getElementById('ladder-table-body'),
+    ladderNote: document.getElementById('ladder-note'),
     goalInflation: document.getElementById('goal-inflation'),
     goalInflationSub: document.getElementById('goal-inflation-sub'),
     goalRealReturn: document.getElementById('goal-real-return'),
@@ -260,6 +266,11 @@ const setupEventListeners = () => {
             dom.inputGoal.value = getGoalAmount();
             renderMonthlySection();
         });
+    }
+
+    // Escalera de plazos fijos: elegir producto
+    if (dom.ladderProduct) {
+        dom.ladderProduct.addEventListener('change', renderLadderSection);
     }
 
     // Exportar Datos
@@ -617,7 +628,9 @@ const simulatePlazoFijo = (amount, startDateStr, endDateStr) => {
 // `product` define el plazo (termDays), qué se guarda al constituirlo (open) y cómo se valúa (valueAt),
 // así la misma estrategia sirve para plazo fijo tradicional y UVA.
 // Devuelve { 'YYYY-MM-DD': valor total } para cada día, o null si falta el histórico de Delta.
-const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product) => {
+// `trace` (opcional): si se pasa un objeto, se completa con el detalle de la escalera
+// { history: [plazos fijos constituidos], active: [vigentes], deltaValue, pendingCash, endDate }
+const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product, trace = null) => {
     if (!subscriptions || subscriptions.length === 0) return {};
     if (!state.deltaHistory || state.deltaHistory.length === 0) return null;
 
@@ -652,6 +665,8 @@ const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product) => {
     let pendingCash = 0;  // Plata rescatada/vencida esperando el próximo día hábil
     let deposits = [];    // Plazos fijos vigentes: { capital, startDate, startTime, maturityTime, tna }
     let lastPrice = null;
+    let pendingSources = []; // De dónde viene la plata en espera (aportes del mes / vencimientos)
+    const history = [];
 
     const current = new Date(firstDate);
     const end = new Date(endDateStr);
@@ -668,7 +683,11 @@ const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product) => {
         const stillRunning = [];
         deposits.forEach(pf => {
             if (now >= pf.maturityTime) {
-                pendingCash += product.valueAt(pf, dateStr, product.termDays);
+                const maturityValue = product.valueAt(pf, dateStr, product.termDays);
+                pendingCash += maturityValue;
+                pf.status = 'Vencido';
+                pf.maturityValue = maturityValue;
+                pendingSources.push({ type: 'renovacion', from: pf.startDate, amount: maturityValue });
             } else {
                 stillRunning.push(pf);
             }
@@ -687,13 +706,27 @@ const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product) => {
 
         // 3. En día hábil, la plata en espera se coloca en un plazo fijo nuevo
         if (isBusinessDay && pendingCash > 0) {
-            deposits.push({ capital: pendingCash, startTime: now, maturityTime: now + product.termDays * DAY_MS, ...product.open(dateStr) });
+            const maturity = new Date(now + product.termDays * DAY_MS).toISOString().split('T')[0];
+            const pf = {
+                capital: pendingCash,
+                startDate: dateStr,
+                maturityDate: maturity,
+                startTime: now,
+                maturityTime: now + product.termDays * DAY_MS,
+                sources: pendingSources,
+                status: 'Vigente',
+                ...product.open(dateStr)
+            };
+            deposits.push(pf);
+            history.push(pf);
             pendingCash = 0;
+            pendingSources = [];
         }
 
         // 4. Último día hábil del mes: rescatar todo Delta (se acredita al día hábil siguiente)
         if (monthEnds.has(dateStr) && cuotapartes > 0 && price) {
             pendingCash += cuotapartes * price;
+            pendingSources.push({ type: 'aportes', month: dateStr.substring(0, 7), amount: cuotapartes * price });
             cuotapartes = 0;
         }
 
@@ -707,16 +740,30 @@ const simulateMonthlyRolloverSeries = (subscriptions, endDateStr, product) => {
         current.setDate(current.getDate() + 1);
     }
 
+    if (trace) {
+        const endTime = new Date(endDateStr).getTime();
+        trace.endDate = endDateStr;
+        trace.termDays = product.termDays;
+        trace.history = history;
+        trace.active = deposits.map(pf => {
+            pf.valueToday = product.valueAt(pf, endDateStr, Math.round((endTime - pf.startTime) / DAY_MS));
+            return pf;
+        });
+        trace.deltaValue = cuotapartes * (lastPrice || 0);
+        trace.pendingCash = pendingCash;
+        trace.pendingSources = pendingSources;
+    }
+
     return valuations;
 };
 
 // Plazo fijo tradicional a 30 días: interés simple con la TNA del día en que se constituye
-const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr) =>
+const simulatePlazoFijoMensualSeries = (subscriptions, endDateStr, trace = null) =>
     simulateMonthlyRolloverSeries(subscriptions, endDateStr, {
         termDays: 30,
         open: (dateStr) => ({ tna: getTnaForDate(dateStr) }),
         valueAt: (pf, dateStr, days) => pf.capital * (1 + (pf.tna / 100) * (days / 365))
-    });
+    }, trace);
 
 // VALOR DE LA UVA EN UNA FECHA (o el anterior publicado)
 const getUvaForDate = (dateStr) => {
@@ -729,13 +776,13 @@ const getUvaForDate = (dateStr) => {
 const PF_UVA_TNA = 1.0;
 
 // Plazo fijo UVA a 90 días: el capital ajusta por UVA (inflación) y además paga PF_UVA_TNA anual
-const simulatePlazoFijoUvaSeries = (subscriptions, endDateStr) => {
+const simulatePlazoFijoUvaSeries = (subscriptions, endDateStr, trace = null) => {
     if (!state.uvaRates || state.uvaRates.length === 0) return null;
     return simulateMonthlyRolloverSeries(subscriptions, endDateStr, {
         termDays: 90,
         open: (dateStr) => ({ uva: getUvaForDate(dateStr) }),
         valueAt: (pf, dateStr, days) => pf.capital * (getUvaForDate(dateStr) / pf.uva) * (1 + (PF_UVA_TNA / 100) * (days / 365))
-    });
+    }, trace);
 };
 
 // ALGORITMO SIMULACIÓN MERCADO PAGO COMPUESTO DIARIO
@@ -1521,6 +1568,119 @@ const renderMonthlySection = () => {
     }
 };
 
+// ÚLTIMO DÍA HÁBIL (lunes a viernes) DEL MES DE dateStr. No contempla feriados.
+const getLastWeekdayOfMonth = (dateStr) => {
+    const [y, m] = dateStr.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m, 0)); // último día del mes
+    while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().split('T')[0];
+};
+
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24));
+
+// Texto de "de dónde salió la plata" de un plazo fijo
+const describeLadderSources = (sources) => {
+    if (!sources || sources.length === 0) return '—';
+    return sources.map(src => src.type === 'aportes'
+        ? `Aportes de ${formatMonthLabel(src.month)} (${formatARS(src.amount)})`
+        : `Renovación del PF del ${formatDateToLocale(src.from)} (${formatARS(src.amount)})`
+    ).join('<br>');
+};
+
+// RENDERIZAR ESCALERA DE PLAZOS FIJOS (SIMULACIÓN)
+const renderLadderSection = () => {
+    if (!dom.ladderSection) return;
+    if (state.subscriptions.length === 0 || !state.deltaHistory.length || !state.ratesFetched) {
+        dom.ladderSection.classList.add('hidden');
+        return;
+    }
+
+    const productKey = dom.ladderProduct ? dom.ladderProduct.value : 'uva';
+    const endDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
+    const trace = {};
+    const result = productKey === 'uva'
+        ? simulatePlazoFijoUvaSeries(state.subscriptions, endDate, trace)
+        : simulatePlazoFijoMensualSeries(state.subscriptions, endDate, trace);
+
+    if (!result || !trace.history) {
+        dom.ladderSection.classList.add('hidden');
+        return;
+    }
+    dom.ladderSection.classList.remove('hidden');
+
+    const active = [...trace.active].sort((a, b) => (a.maturityDate < b.maturityDate ? -1 : 1));
+    const capitalActivo = active.reduce((s, pf) => s + pf.capital, 0);
+    const valorActivo = active.reduce((s, pf) => s + pf.valueToday, 0);
+    const proximo = active[0];
+    const total = valorActivo + trace.deltaValue + trace.pendingCash;
+
+    // --- Resumen ---
+    dom.ladderSummary.innerHTML = `
+        <div class="goal-stat">
+            <span class="goal-stat-label">Plazos fijos vigentes</span>
+            <span class="goal-stat-value">${active.length}</span>
+            <span class="goal-stat-sub">capital ${formatARS(capitalActivo)}</span>
+        </div>
+        <div class="goal-stat">
+            <span class="goal-stat-label">Valor hoy de los plazos fijos</span>
+            <span class="goal-stat-value">${formatARS(valorActivo)}</span>
+            <span class="goal-stat-sub">con interés devengado (bloqueado hasta el vencimiento)</span>
+        </div>
+        <div class="goal-stat">
+            <span class="goal-stat-label">Próximo vencimiento</span>
+            <span class="goal-stat-value">${proximo ? formatDateToLocale(proximo.maturityDate) : '—'}</span>
+            <span class="goal-stat-sub">${proximo ? `≈ ${formatARS(proximo.valueToday)} hoy · faltan ${daysBetween(endDate, proximo.maturityDate)} días` : 'sin plazos fijos vigentes'}</span>
+        </div>
+        <div class="goal-stat">
+            <span class="goal-stat-label">Esperando en Delta</span>
+            <span class="goal-stat-value">${formatARS(trace.deltaValue + trace.pendingCash)}</span>
+            <span class="goal-stat-sub">aportes del mes en curso (líquido)</span>
+        </div>
+        <div class="goal-stat goal-stat-highlight">
+            <span class="goal-stat-label">Total con esta estrategia</span>
+            <span class="goal-stat-value">${formatARS(total)}</span>
+            <span class="goal-stat-sub">al ${formatDateToLocale(endDate)}</span>
+        </div>`;
+
+    // --- Próximo traspaso de fin de mes y vencimientos cercanos ---
+    const nextMonthEnd = getLastWeekdayOfMonth(endDate);
+    const proxVencimientos = active.filter(pf => daysBetween(endDate, pf.maturityDate) <= 35);
+    let next = `<b><i class="fa-solid fa-calendar-check"></i> Próximo traspaso: ≈ ${formatDateToLocale(nextMonthEnd)}</b> (último día hábil del mes, sin contar feriados).<br>` +
+        `Hoy hay <b>${formatARS(trace.deltaValue + trace.pendingCash)}</b> en Delta para mover; se suma todo lo que aportes hasta ese día. ` +
+        `Ese día se rescata de Delta y al día hábil siguiente se arma un plazo fijo ${productKey === 'uva' ? 'UVA a 90' : 'a 30'} días.`;
+    if (proxVencimientos.length > 0) {
+        next += `<br><b><i class="fa-solid fa-rotate"></i> Vencimientos en las próximas semanas:</b> ` +
+            proxVencimientos.map(pf => `${formatDateToLocale(pf.maturityDate)} (≈ ${formatARS(pf.valueToday)} hoy)`).join(' · ') +
+            ` → al vencer, se renueva (o se usa esa plata si la necesitás).`;
+    }
+    dom.ladderNextMove.innerHTML = next;
+
+    // --- Tabla: vigentes primero (por vencimiento), después los vencidos (más recientes arriba) ---
+    const done = trace.history.filter(pf => pf.status !== 'Vigente').sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
+    const rows = [...active, ...done];
+    dom.ladderTableBody.innerHTML = rows.length === 0
+        ? `<tr><td colspan="7" class="text-center text-muted">Todavía no se cerró ningún mes: el primer plazo fijo se arma el último día hábil del mes.</td></tr>`
+        : rows.map(pf => {
+            const vigente = pf.status === 'Vigente';
+            const faltan = vigente ? daysBetween(endDate, pf.maturityDate) : null;
+            const value = vigente ? pf.valueToday : pf.maturityValue;
+            return `
+                <tr class="${vigente ? '' : 'ladder-row-done'}">
+                    <td><strong>${formatDateToLocale(pf.startDate)}</strong></td>
+                    <td style="font-size: 0.8rem;">${describeLadderSources(pf.sources)}</td>
+                    <td class="text-right">${formatARS(pf.capital)}</td>
+                    <td>${formatDateToLocale(pf.maturityDate)}</td>
+                    <td class="text-right">${vigente ? `${faltan} días` : '—'}</td>
+                    <td class="text-right" style="font-weight:600;">${formatARS(value)} <small style="color:var(--text-muted)">${vigente ? 'hoy' : 'al vencer'}</small></td>
+                    <td class="text-center"><span class="ladder-status ${vigente ? 'vigente' : 'vencido'}">${vigente ? 'Vigente' : 'Vencido → renovado'}</span></td>
+                </tr>`;
+        }).join('');
+
+    dom.ladderNote.innerText = productKey === 'uva'
+        ? `Plazo fijo UVA: el capital ajusta por la variación de la UVA y paga además ${PF_UVA_TNA}% TNA (aproximación; cada banco fija su tasa y monto mínimo). No se puede retirar antes del vencimiento, salvo en la variante precancelable.`
+        : 'Plazo fijo tradicional: interés simple con la TNA promedio de depósitos a 30 días (BCRA) del día en que se constituye.';
+};
+
 const recalculateAndRender = () => {
     // 1. Cálculos de métricas totales con manejo de Rescates
     let capitalTotal = 0;
@@ -1688,6 +1848,7 @@ const recalculateAndRender = () => {
     // 4. Renderizar la tabla de movimientos y el resumen mensual
     renderMovementsTable();
     renderMonthlySection();
+    renderLadderSection();
     
     // 5. Aplicar visibilidad de tarjetas del panel y la leyenda personalizada
     const keys = ['capital', 'delta', 'plazofijo', 'plazofijouva', 'mercadopago', 'naranjax', 'dolar'];
