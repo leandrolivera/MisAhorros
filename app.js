@@ -375,12 +375,14 @@ const fetchHistoricalRates = async () => {
             if (!res.ok) throw new Error('Error en plazo fijo');
             const data = await res.json();
             state.plazoFijoRates = data.sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+            tnaCache.clear();
             state.ratesFetched = true;
             console.log(`Tasas Plazo Fijo cargadas: ${state.plazoFijoRates.length} registros`);
         })
         .catch(err => {
             console.error('Error cargando tasas históricas de Plazo Fijo:', err);
             state.plazoFijoRates = [{ fecha: '2026-01-01', valor: 30.0 }];
+            tnaCache.clear();
             state.ratesFetched = false;
         });
 
@@ -439,22 +441,36 @@ const fetchHistoricalRates = async () => {
     }
 };
 
+// BÚSQUEDA BINARIA: índice del último registro con fecha <= dateStr (series ordenadas asc).
+// Las fechas se comparan como texto 'YYYY-MM-DD', así evitamos crear miles de objetos Date.
+const findLastIndexOnOrBefore = (series, dateStr) => {
+    let lo = 0, hi = series.length - 1, ans = -1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (series[mid].fecha.substring(0, 10) <= dateStr) {
+            ans = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    return ans;
+};
+
+// Cache de TNA por día (la simulación diaria consulta muchas veces las mismas fechas)
+const tnaCache = new Map();
+
 // OBTENER LA TASA TNA PARA UNA FECHA ESPECÍFICA (O LA ANTERIOR MÁS CERCANA)
 const getTnaForDate = (dateStr) => {
     if (!state.plazoFijoRates || state.plazoFijoRates.length === 0) return 30.0; // TNA por defecto
-    
-    const targetTime = new Date(dateStr).getTime();
-    let lastRate = 30.0;
-    
-    for (const r of state.plazoFijoRates) {
-        const rTime = new Date(r.fecha).getTime();
-        if (rTime <= targetTime) {
-            lastRate = r.valor;
-        } else {
-            break; // Detener ya que están ordenadas
-        }
-    }
-    return lastRate;
+
+    const cached = tnaCache.get(dateStr);
+    if (cached !== undefined) return cached;
+
+    const idx = findLastIndexOnOrBefore(state.plazoFijoRates, dateStr);
+    const rate = idx >= 0 ? state.plazoFijoRates[idx].valor : 30.0;
+    tnaCache.set(dateStr, rate);
+    return rate;
 };
 
 // ALGORITMO SIMULACIÓN PLAZO FIJO COMPUESTO CADA 30 DÍAS
@@ -520,19 +536,41 @@ const simulateMercadoPago = (amount, startDateStr, endDateStr) => {
 // OBTENER LA COTIZACIÓN DEL DÓLAR BLUE PARA UNA FECHA ESPECÍFICA (O LA ANTERIOR MÁS CERCANA)
 const getDolarBlueRateForDate = (dateStr) => {
     if (!state.dolarBlueRates || state.dolarBlueRates.length === 0) return null;
-    
-    const targetTime = new Date(dateStr).getTime();
-    let lastRate = null;
-    
-    for (const r of state.dolarBlueRates) {
-        const rTime = new Date(r.fecha).getTime();
-        if (rTime <= targetTime) {
-            lastRate = r;
-        } else {
-            break; // Detener ya que están ordenadas
-        }
+
+    const idx = findLastIndexOnOrBefore(state.dolarBlueRates, dateStr);
+    return idx >= 0 ? state.dolarBlueRates[idx] : state.dolarBlueRates[0];
+};
+
+// SIMULACIÓN MERCADO PAGO COMO PORTAFOLIO (una sola pasada día por día).
+// Como la simulación es lineal en el monto, es equivalente a sumar simulateMercadoPago()
+// de cada movimiento, pero en O(días) en vez de O(movimientos² × días).
+// Devuelve { 'YYYY-MM-DD': saldo al inicio de ese día, incluyendo los movimientos de ese día }
+const simulateMercadoPagoSeries = (subscriptions, endDateStr) => {
+    if (!subscriptions || subscriptions.length === 0) return {};
+
+    const flowsByDate = {};
+    let firstDate = null;
+    subscriptions.forEach(s => {
+        flowsByDate[s.date] = (flowsByDate[s.date] || 0) + (s.type === 'Rescate' ? -s.amount : s.amount);
+        if (!firstDate || s.date < firstDate) firstDate = s.date;
+    });
+
+    const valuations = {};
+    let balance = 0;
+    const current = new Date(firstDate);
+    const end = new Date(endDateStr);
+
+    while (current <= end) {
+        const dateStr = current.toISOString().split('T')[0];
+        if (flowsByDate[dateStr]) balance += flowsByDate[dateStr];
+        valuations[dateStr] = balance;
+
+        const tnaMP = getTnaForDate(dateStr) * 0.85;
+        balance += balance * (tnaMP / 100) / 365;
+        current.setDate(current.getDate() + 1);
     }
-    return lastRate || state.dolarBlueRates[0];
+
+    return valuations;
 };
 
 // ALGORITMO SIMULACIÓN DÓLAR BLUE (COMPRA/VENTA HISTÓRICA)
@@ -1045,11 +1083,12 @@ const recalculateAndRender = () => {
         state.subscriptions.forEach(s => {
             const flowAmount = s.type === 'Rescate' ? -s.amount : s.amount;
             totalPlazoFijoVal += simulatePlazoFijo(flowAmount, s.date, endSimulationDate);
-            totalMercadoPagoVal += simulateMercadoPago(flowAmount, s.date, endSimulationDate);
             totalDolarVal += simulateDolarBlue(flowAmount, s.date, endSimulationDate);
         });
         
-        // Naranja X se simula como portafolio unificado
+        // Mercado Pago y Naranja X se simulan como portafolio unificado (una pasada diaria)
+        const mpValuationsMap = simulateMercadoPagoSeries(state.subscriptions, endSimulationDate);
+        totalMercadoPagoVal = mpValuationsMap[endSimulationDate] || 0;
         const nxValuationsMap = simulateNaranjaXSeries(state.subscriptions, endSimulationDate);
         totalNaranjaXVal = nxValuationsMap[endSimulationDate] || 0;
         
@@ -1219,13 +1258,16 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     // Simular Naranja X para toda la serie hasta la última fecha de cierre disponible
     const apiCloseDate = state.currentFechaCierre || new Date().toISOString().split('T')[0];
     const nxValuationsMap = simulateNaranjaXSeries(chronSub, apiCloseDate);
+    const mpValuationsMap = state.ratesFetched ? simulateMercadoPagoSeries(chronSub, apiCloseDate) : {};
     
     // Agrupar por fechas
     const dataPoints = [];
     let accumCapital = 0;
     let accumCuotapartes = 0;
     
-    chronSub.forEach(s => {
+    chronSub.forEach((s, idx) => {
+        // Si el próximo movimiento es del mismo día, el punto de ese día lo calcula el último movimiento del día
+        const isLastOfDay = idx === chronSub.length - 1 || chronSub[idx + 1].date !== s.date;
         const flowAmount = s.type === 'Rescate' ? -s.amount : s.amount;
         const flowCuotas = s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes;
         
@@ -1239,23 +1281,16 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
         const valuationOnDate = accumCuotapartes * s.cotizacion;
         
         // Simular Plazo Fijo, Mercado Pago y Dolar Blue acumulados hasta esta fecha s.date
-        const subsUpToThisDate = chronSub.filter(sub => new Date(sub.date) <= new Date(s.date));
+        if (!isLastOfDay) return;
+        
+        // chronSub está ordenado: los movimientos hasta esta fecha son chronSub[0..idx]
+        const subsUpToThisDate = chronSub.slice(0, idx + 1);
         const pfValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
-        const mpValuationOnDate = state.ratesFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateMercadoPago(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
+        const mpValuationOnDate = mpValuationsMap[s.date] || 0;
         const nxValuationOnDate = nxValuationsMap[s.date] || 0;
         const dolarValuationOnDate = state.dolarFetched ? subsUpToThisDate.reduce((sum, sub) => sum + simulateDolarBlue(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, s.date), 0) : 0;
         
-        // Si ya hay un data point en la misma fecha (ej: múltiples cargas el mismo día), lo actualizamos
-        const existingPoint = dataPoints.find(dp => dp.date === s.date);
-        if (existingPoint) {
-            existingPoint.capital = accumCapital;
-            existingPoint.cuotapartes = accumCuotapartes;
-            existingPoint.valuation = valuationOnDate;
-            existingPoint.plazoFijo = pfValuationOnDate;
-            existingPoint.mercadoPago = mpValuationOnDate;
-            existingPoint.naranjax = nxValuationOnDate;
-            existingPoint.dolar = dolarValuationOnDate;
-        } else {
+        {
             dataPoints.push({
                 date: s.date,
                 capital: accumCapital,
@@ -1275,7 +1310,7 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
     // Añadimos solo si la fecha del cierre de la API es posterior a la última suscripción
     if (latestDateInSubs && new Date(apiCloseDate) > new Date(latestDateInSubs)) {
         const pfValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulatePlazoFijo(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
-        const mpValToday = state.ratesFetched ? chronSub.reduce((sum, sub) => sum + simulateMercadoPago(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
+        const mpValToday = mpValuationsMap[apiCloseDate] || 0;
         const nxValToday = nxValuationsMap[apiCloseDate] || 0;
         const dolarValToday = state.dolarFetched ? chronSub.reduce((sum, sub) => sum + simulateDolarBlue(sub.type === 'Rescate' ? -sub.amount : sub.amount, sub.date, apiCloseDate), 0) : 0;
         
@@ -1617,10 +1652,23 @@ async function handlePdfImport(e) {
     dom.pdfLoader.classList.remove('hidden');
     
     let successCount = 0;
+    let duplicateCount = 0;
+    const failedFiles = [];
+    
+    // Claves de movimientos ya cargados, para no duplicar al reimportar los mismos PDFs
+    const movementKey = (m) => `${m.type === 'Rescate' ? 'R' : 'S'}|${m.date}|${Number(m.amount).toFixed(2)}|${Number(m.cuotapartes).toFixed(4)}`;
+    const existingReceipts = new Set(state.subscriptions.filter(s => s.receipt).map(s => s.receipt));
+    const existingKeys = new Set(state.subscriptions.map(movementKey));
     
     try {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
+            
+            if (dom.pdfLoaderText) {
+                dom.pdfLoaderText.innerText = `Procesando comprobante ${i + 1} de ${files.length}...`;
+            }
+            // Ceder el control al navegador para que pueda repintar (evita que la pestaña parezca colgada)
+            await new Promise(resolve => setTimeout(resolve, 0));
             
             // Leer el archivo como ArrayBuffer
             const arrayBuffer = await file.arrayBuffer();
@@ -1638,6 +1686,14 @@ async function handlePdfImport(e) {
             
             const parsed = parseReceipt(fullText);
             if (parsed.date && parsed.amount && parsed.cuotapartes && parsed.cotizacion) {
+                const key = movementKey(parsed);
+                if ((parsed.receipt && existingReceipts.has(parsed.receipt)) || existingKeys.has(key)) {
+                    duplicateCount++;
+                    continue;
+                }
+                if (parsed.receipt) existingReceipts.add(parsed.receipt);
+                existingKeys.add(key);
+                
                 const newSubscription = {
                     id: 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
                     date: parsed.date,
@@ -1645,21 +1701,31 @@ async function handlePdfImport(e) {
                     cuotapartes: parsed.cuotapartes,
                     cotizacion: parsed.cotizacion,
                     type: parsed.type,
+                    receipt: parsed.receipt,
                     manual: true
                 };
                 
                 state.subscriptions.push(newSubscription);
                 successCount++;
             } else {
-                console.warn(`No se pudieron extraer todos los datos del PDF: ${file.name}`);
+                console.warn(`No se pudieron extraer todos los datos del PDF: ${file.name}`, parsed);
+                failedFiles.push(file.name);
             }
         }
         
+        let detail = '';
+        if (duplicateCount > 0) detail += `<br>Se omitieron ${duplicateCount} comprobantes ya cargados.`;
+        if (failedFiles.length > 0) detail += `<br>No se pudieron leer ${failedFiles.length}: ${failedFiles.join(', ')}`;
+        
         if (successCount > 0) {
+            if (dom.pdfLoaderText) dom.pdfLoaderText.innerText = 'Calculando comparativas...';
+            await new Promise(resolve => setTimeout(resolve, 0));
             state.subscriptions.sort((a, b) => new Date(b.date) - new Date(a.date));
             saveLocalStorageData();
             recalculateAndRender();
-            showAlert('Importación PDF Exitosa', `Se cargaron ${successCount} comprobantes correctamente.`);
+            showAlert('Importación PDF Exitosa', `Se cargaron ${successCount} comprobantes correctamente.${detail}`);
+        } else if (duplicateCount > 0) {
+            showAlert('Sin Cambios', `Todos los comprobantes seleccionados ya estaban cargados.${detail}`);
         } else {
             showAlert('Importación Fallida', 'No se pudieron extraer datos válidos de los comprobantes. Verificá que sean liquidaciones del Banco Santa Fe válidas.');
         }
@@ -1674,6 +1740,7 @@ async function handlePdfImport(e) {
 
 function parseReceipt(text) {
     let result = {
+        receipt: null,       // Número de comprobante (para evitar duplicados)
         type: 'Suscripción', // default
         date: null,
         amount: null,
@@ -1688,6 +1755,10 @@ function parseReceipt(text) {
         result.type = 'Suscripción';
     }
 
+    // Número de comprobante
+    const receiptMatch = text.match(/Número:\s*(\d+)/i);
+    if (receiptMatch) result.receipt = receiptMatch[1];
+
     // Monto
     const amountMatch = text.match(/(?:MONTO DEPOSITADO|IMPORTE NETO|IMPORTE A COBRAR)\s*\$\s*([\d\.,]+)/i);
     if (amountMatch) {
@@ -1696,14 +1767,16 @@ function parseReceipt(text) {
     }
 
     // Cuotapartes
-    const cuotasMatch = text.match(/CUOTAPARTES\s+(?:SUSCRIPTAS|RESCATADAS)?\s*:\s*([\d\.,]+)/i);
+    // Suscripción: "CUOTAPARTES SUSCRIPTAS:   337,5596" / Rescate: "CUOTAPARTES RESCATADAS   4.645,3263"
+    const cuotasMatch = text.match(/CUOTAPARTES\s+(?:SUSCRIPTAS|RESCATADAS)\s*:?\s*([\d\.,]+)/i);
     if (cuotasMatch) {
         let rawCuotas = cuotasMatch[1].replace(/\./g, '').replace(',', '.');
         result.cuotapartes = parseFloat(rawCuotas);
     }
     
     // Cotización
-    const cotMatch = text.match(/VALOR CUOTAPARTE\s*:\s*([\d\.,]+)/i);
+    // Suscripción: "VALOR CUOTAPARTE:   103,685379" / Rescate: "VALOR DE LA CUOTAPARTE   $   107,992182"
+    const cotMatch = text.match(/VALOR (?:DE LA )?CUOTAPARTE\s*:?\s*\$?\s*([\d\.,]+)/i);
     if (cotMatch) {
         let rawCot = cotMatch[1].replace(/\./g, '').replace(',', '.');
         result.cotizacion = parseFloat(rawCot);
