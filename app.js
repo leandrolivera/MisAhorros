@@ -1100,8 +1100,9 @@ const recalculateAndRender = () => {
     
     chronSub.forEach(s => {
         if (s.type === 'Rescate') {
+            // Capital neto aportado = suscripciones - rescates. Sin tope en cero: si rescatás más de
+            // lo que pusiste, esa diferencia es ganancia ya cobrada y debe seguir contando.
             capitalTotal -= s.amount;
-            if (capitalTotal < 0) capitalTotal = 0;
             cuotapartesTotales -= s.cuotapartes;
             if (cuotapartesTotales < 0) cuotapartesTotales = 0;
         } else {
@@ -1384,8 +1385,7 @@ const renderChart = (totalCapital, totalCuotapartes, currentValuation, totalPlaz
         const flowAmount = s.type === 'Rescate' ? -s.amount : s.amount;
         const flowCuotas = s.type === 'Rescate' ? -s.cuotapartes : s.cuotapartes;
         
-        accumCapital += flowAmount;
-        if (accumCapital < 0) accumCapital = 0;
+        accumCapital += flowAmount; // sin tope en cero (ver recalculateAndRender)
         
         accumCuotapartes += flowCuotas;
         if (accumCuotapartes < 0) accumCuotapartes = 0;
